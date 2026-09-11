@@ -112,6 +112,7 @@ Plan generation is **fully deterministic** — no LLM call. The service:
 
 1. Fetches curriculum units for the requested CEFR level from `backend/app/data/curriculum.py`.
 2. Calls `distribute_units()` to spread units across the total weeks × days grid using deterministic fair quotas: every unit receives a base share of lesson slots (remainder spread one each across the earliest, prerequisite-first units), each unit's allocation walks its curriculum `lesson_types` in order (cycling), truncation only trims a unit's own tail, and consecutive lessons within a unit rotate through the unit's competency checklist, grammar points, and vocabulary sets so their generation inputs differ.
+3. Learner-responsive sequencing (#317): when the request carries assessment `weaknesses`, `match_weaknesses_to_units()` maps them to curriculum units by deterministic alias matching over grammar-point slugs and unit titles (no LLM), and matched units receive a +2 slot boost. Donors are the most-loaded units the learner is not weak in, taken in curriculum order; the final consolidation unit is never donated from; totals are strictly conserved; no match degrades to the plain fair-quota plan.
 3. Builds a list of `WeekPlan` objects, each containing a list of `DayPlan` objects.
 4. Returns a `GeneratedPlan` Pydantic model, which is stored as JSON in `study_plans.generated_plan`.
 

@@ -21,11 +21,28 @@ async def generate_study_plan(
     """
     lang_name = get_language_name(target_language)
     units = get_curriculum_units(request.cefr_level, target_language)
+
+    # Learner-responsive sequencing (issue #317): map placement weaknesses
+    # to curriculum units and boost them. Deterministic, no LLM; with no
+    # weaknesses (or no matches) this is the plain fair-quota plan.
+    unit_weights: dict[str, int] | None = None
+    if request.weaknesses:
+        from app.services.weakness_matching import (  # noqa: PLC0415
+            match_weaknesses_to_units,
+        )
+
+        matched = match_weaknesses_to_units(
+            units, request.weaknesses, target_language=target_language
+        )
+        if matched:
+            unit_weights = {uid: 2 for uid in matched}
+
     lesson_slots = distribute_units(
         units=units,
         total_weeks=request.duration_weeks,
         days_per_week=request.days_per_week,
         target_language=target_language,
+        unit_weights=unit_weights,
     )
 
     weeks_map: dict[int, list[dict]] = {}

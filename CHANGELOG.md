@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Accent readability**: secondary subscription-button text uses the full foreground color to keep it readable when hovering over the new blue buttons in light mode, and the active-language badge in admin user detail uses a lighter tint for clearer small text.
 - **What's New highlights**: v1.8.55 opens with the new visual-identity highlight in all ten UI languages, followed by the two existing readability highlights and the preserved general bug-fix entry as the final item.
 
+### Added
+
+- **Learner-responsive study plans (#317)**: assessment weaknesses now influence plan generation. Weaknesses are matched to curriculum units via deterministic alias matching (no LLM), and matched units receive a +2 lesson boost taken from the most-loaded units the learner is strong in, preserving the total plan length, the completion test, and the fair-quota balance guarantees. `distribute_units()` accepts optional `unit_weights`; `/api/assessment/complete` and `/api/study-plan/generate` both honor it.
+
 ### Fixed
 
 - **Study plan unit distribution (#316)**: plans no longer front-load the first unit (15 of 47 lessons on one grammar topic in the reported 12-week × 4-day case) or truncate the final consolidation unit. Units now receive deterministic fair quotas, keep their full lesson-type cycles, and consecutive lessons within a unit rotate objectives, grammar points, and vocabulary instead of being generated from byte-identical inputs.

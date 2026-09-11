@@ -152,8 +152,15 @@ def distribute_units(
     total_weeks: int,
     days_per_week: int,
     target_language: str = "en-GB",
+    unit_weights: dict[str, int] | None = None,
 ) -> list[dict]:
-    """Distribute curriculum units across lesson slots."""
+    """Distribute curriculum units across lesson slots.
+
+    ``unit_weights`` optionally boosts specific units (learner-responsive
+    sequencing, issue #317): weighted units gain slots, the most-loaded
+    non-weighted units donate, total slot count is preserved, and no unit
+    is ever donated below one full lesson-type cycle.
+    """
     i18n = _I18N.get(target_language) or _I18N.get(target_language.split("-")[0], _I18N["en-GB"])
 
     total_slots = total_weeks * days_per_week
@@ -171,6 +178,50 @@ def distribute_units(
     base_quota = lesson_slots // n_units
     remainder = lesson_slots % n_units
 
+    # ── Learner-responsive weighting (issue #317) ────────────────────
+    # Weighted units gain; donors are the currently most-loaded units the
+    # learner is NOT weak in, taken in curriculum order, never donating
+    # below one full lesson-type cycle. Totals are strictly conserved.
+    weights = unit_weights or {}
+    valid_weights = {
+        uid: min(int(w), lesson_slots // max(1, len(units))) for uid, w in weights.items() if w > 0
+    }
+    quotas: list[int] = []
+    for unit_index, unit in enumerate(units):
+        quota = base_quota + (1 if unit_index < remainder else 0)
+        quota += valid_weights.get(unit.id, 0)
+        quotas.append(quota)
+
+    if valid_weights:
+        cycle_floor = {
+            unit.id: min(len(unit.lesson_types or ["grammar"]), base_quota) for unit in units
+        }
+        total_bonus = sum(valid_weights.values())
+        # most-loaded first, curriculum order as tiebreak, winners and the
+        # final consolidation unit excluded from donating
+        winner_ids = set(valid_weights)
+        protected = {units[-1].id}
+        while total_bonus > 0:
+            candidates = [
+                i
+                for i, unit in enumerate(units)
+                if unit.id not in winner_ids
+                and unit.id not in protected
+                and quotas[i] > cycle_floor[unit.id]
+            ]
+            if not candidates:
+                # everyone at floor: relax protection, keep winners whole
+                candidates = [
+                    i
+                    for i, unit in enumerate(units)
+                    if unit.id not in winner_ids and quotas[i] > cycle_floor[unit.id]
+                ]
+                if not candidates:
+                    break
+            donors = sorted(candidates, key=lambda i: (-quotas[i], i))
+            quotas[donors[0]] -= 1
+            total_bonus -= 1
+
     # ── Per-unit slot plans: full lesson-type cycles ─────────────────
     # Each unit's allocation walks its curriculum lesson_types in order,
     # cycling as many times as the quota allows. Truncation only trims
@@ -178,7 +229,7 @@ def distribute_units(
     # another unit's allocation.
     unit_plans: list[list[str]] = []
     for unit_index, unit in enumerate(units):
-        quota = base_quota + (1 if unit_index < remainder else 0)
+        quota = quotas[unit_index]
         lt_list = unit.lesson_types or ["grammar"]
         cycle = max(1, len(lt_list))
         types = [lt_list[i % cycle] for i in range(quota)]

@@ -1,5 +1,13 @@
 {
   "landing": {
+    "microDemo": {
+      "title": "Here's how Lingu helps you",
+      "exampleLabel": "Example of English practice",
+      "questionLabel": "Lingu · Question",
+      "answerLabel": "You · Answer",
+      "correctionLabel": "Lingu · Correction",
+      "explanation": "To talk about yesterday, use 'went', the past tense of 'go'."
+    },
     "hero": "Learn languages with a real voice conversation partner",
     "heroSub": "Talk. Listen. Improve.",
     "signIn": "Sign in",
@@ -418,7 +426,7 @@
     "loadingProgress": "Loading progress...",
     "noLevel": "No level set yet.",
     "completeAssessment": "Take assessment",
-    "allCaughtUp": "All caught up.",
+    "allCaughtUp": "Your plan, at your pace",
     "startWithAssessment": "Start with an assessment.",
     "takeAssessmentArrow": "Take Assessment →",
     "goToMyPlan": "My Plan →",
@@ -428,9 +436,10 @@
     "pendingLessons": "pending lessons",
     "nextStep": "Next step",
     "assessmentCreatesPlan": "The assessment finds your level and creates a personalised plan for your active language.",
-    "lessonReady": "Lesson ready",
+    "lessonReady": "Your next step, at your pace",
     "pendingStillAvailable": "You have {count} previous lessons waiting in your plan.",
-    "noPendingToday": "You have completed today's lessons. You can review your plan or practise another activity.",
+    "noPendingToday": "Check your plan to see how to continue.",
+    "planDayGoal": "Goal for this day of your plan",
     "lessonsCompleted": "Lessons",
     "accuracy": "Accuracy",
     "exerciseStats": "{correct}/{total} exercises",
@@ -569,12 +578,16 @@
     "voiceTrialSkip": "Skip for now"
   },
   "plan": {
+    "unitLocked": "Unit locked",
+    "unitAvailable": "Unit available",
+    "lessonPending": "Pending lesson",
     "title": "My Plan",
     "subtitle": "Study Plan",
     "noPlan": "No active study plan found.",
     "startAssessment": "Take assessment first",
     "week": "Week",
     "currentLesson": "Current Lesson",
+    "currentUnit": "Current unit",
     "startLesson": "Start Lesson",
     "completed": "Completed",
     "generating": "Generating lesson...",
@@ -614,6 +627,7 @@
     "levelTestResult": "Level Test Result",
     "testScore": "Score:",
     "pendingLessons": "Pending lessons",
+    "pendingReassurance": "You can pick them up again whenever it suits you.",
     "resume": "Resume",
     "lessonsHeader": "Lessons · {count}",
     "reviewLesson": "Review",
@@ -644,7 +658,8 @@
     "vocabulary": "Vocabulary",
     "label": "Lesson",
     "submitAnswer": "Submit Answer",
-    "lessonDone": "Lesson Done",
+    "lessonDone": "Good work. Lesson completed.",
+    "exerciseSummary": "Exercises assessed: {completed} of {total}",
     "score": "Score",
     "showNativeExplanation": "Show in",
     "hint": "Hint",
@@ -667,7 +682,7 @@
     "exitConfirmTitle": "Exit lesson?",
     "exitConfirmMessage": "Your progress on this lesson will be lost.",
     "dayComplete": "Day complete!",
-    "dayCompleteMsg": "All today's lessons are done."
+    "dayCompleteMsg": "You have completed this day of your plan. Continue whenever it suits you."
   },
   "flashcards": {
     "title": "Flashcards",
@@ -1122,7 +1137,7 @@
     "sessionEnded": "Session ended",
     "tapToStart": "Speak when ready",
     "you": "You",
-    "assistant": "FreeLingo",
+    "assistant": "Lingu",
     "quotaSessions": "Sessions this week",
     "quotaMinutes": "Minutes today",
     "quotaUnlimited": "Unlimited",
@@ -1447,9 +1462,21 @@
   },
   "whatsNew": {
     "title": "What's New",
-    "version": "v1.8.50",
+    "version": "v1.9.5",
     "cta": "Got it",
     "entry1": {
+      "label": "A style of our own",
+      "desc": "Petrol-blue tones and solid backgrounds give FreeLingo more personality, while keeping the minimalist design you already know."
+    },
+    "entry2": {
+      "label": "More comfortable reading",
+      "desc": "A clearer typeface and gentle adjustments to text size, spacing and contrast make your lessons, explanations and conversations more comfortable to read."
+    },
+    "entry3": {
+      "label": "Clearer details",
+      "desc": "Translations and helpful notes are easier to read. Our information website and emails also have a more readable presentation."
+    },
+    "entry4": {
       "label": "A smoother experience",
       "desc": "Bug fixes and small improvements make FreeLingo more reliable and enjoyable to use."
     }

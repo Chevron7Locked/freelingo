@@ -41,7 +41,7 @@ const WHATS_NEW_VERSION = "v1.5.0";
 const STORAGE_KEY = `fl_whats_new_seen_${WHATS_NEW_VERSION}`;
 ```
 
-To ship a new release: update `WHATS_NEW_VERSION` and add the new entries to the translation files.
+To ship a new release: update `WHATS_NEW_VERSION` and the matching `whatsNew.version` label in all ten translation files. Update the entries only when explicitly approved; a version-only bump preserves the existing entries.
 
 ---
 
@@ -79,11 +79,11 @@ Single-panel layout — no step pagination. All entries for the version are show
 
 ```
 ┌─────────────────────────────────────────┐
-│  ✦  WHAT'S NEW — v1.5.0                │
+│  WHAT'S NEW — v1.5.0          [Lingu]   │
 ├─────────────────────────────────────────┤
 │                                         │
 │  ◎  FEATURE LABEL                       │
-│     Short description of the feature.  │
+│     Short description of the feature.   │
 │                                         │
 │  ▣  ANOTHER FEATURE                     │
 │     Short description.                  │
@@ -100,8 +100,9 @@ Single-panel layout — no step pagination. All entries for the version are show
 
 - **Backdrop**: full-screen fixed overlay (`z-50`), semi-transparent with `backdrop-blur-sm`. Clicking it dismisses the modal.
 - **Modal card**: centered, `max-w-md`, same border/surface tokens as the tour (`border-fl-border bg-fl-surface`).
-- **Header**: version label (`✦ WHAT'S NEW — vX.Y.Z`) in `font-mono tracking-widest uppercase text-fl-muted-2`.
-- **Entry list**: each entry has an icon (`◎ ▣ △ ◇ ✦ ▣` cycling), a label in `uppercase text-fl-muted-2`, and a description in `text-fl-muted-1`.
+- **Header**: the title uses Geist Sans with `tracking-widest uppercase text-fl-muted-2`; the version marker uses Geist Mono through `font-code`.
+- **Header illustration**: title and version sit on the left; transparent `/logo_update.png` shows Lingu on the right at a fixed 85 × 85px using `next/image`, replacing the sparkle icon. The decorative image has empty alt text and stays inside the card without a background or frame. Existing modal styling, entries, and dismissal behavior are preserved.
+- **Entry list**: each entry has a `CircleDot` icon, a 12px semibold sentence-case label in `text-fl-fg`, and a 14px Geist Sans description in `text-fl-muted-1` with relaxed line spacing. Rich-text emphasis uses `text-fl-fg`.
 - **Divider** between header, list, and footer using `border-fl-border`.
 - **Footer**: single `Got it →` button (filled `bg-fl-accent`) right-aligned.
 - **Max height**: `max-h-[50vh] overflow-y-auto` on the entries container to handle long lists gracefully.
@@ -112,7 +113,7 @@ Single-panel layout — no step pagination. All entries for the version are show
 
 Namespace: `whatsNew` in all `messages/*.json` files.
 
-**Rule: all 10 locale files must always be updated in sync.** The supported locales are: `en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`. No locale may be left behind or contain entries from a previous version.
+**Rule: all 10 locale files must always be updated in sync.** The supported locales are: `en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`. No locale may be left behind. For an explicitly requested version-only bump, preserve all existing entries in every locale and update only the version labels.
 
 Structure for each version's entries:
 
@@ -134,7 +135,9 @@ Structure for each version's entries:
 
 The number of entries is variable per version. The component reads entries dynamically using `useMessages()` from `next-intl` — it inspects the raw `whatsNew` namespace object and filters keys matching `/^entry\d+$/`, sorted numerically. **Do not use `useTranslations` in a try/catch loop to detect missing keys** — `next-intl` does not throw on missing keys; it returns the key path as a string, which would cause an infinite loop.
 
-**When shipping a new version: replace all existing `entry*` keys with the new version's entries.** Do not accumulate old entries — only the current version's changelog items should be present. The `version` key must also be updated to match `WHATS_NEW_VERSION` in the component.
+**When shipping approved new content: replace the existing `entry*` keys with the approved entries rather than accumulating old entries.** If the maintainer requests only a version bump, leave every entry unchanged. In either case, update the `version` key to match `WHATS_NEW_VERSION` in the component.
+
+For v1.9.5, all ten locales preserve the four existing entries exactly: the visual-identity highlight as `entry1`, the reading-comfort and clearer-translations/website/email highlights as `entry2` and `entry3`, and the general bug-fix entry as `entry4`. `WHATS_NEW_VERSION` and every localized version label are `v1.9.5`. The existing dynamic renderer is unchanged. The dismissal key is now `fl_whats_new_seen_v1.9.5`, so a prior dismissal of an older version does not suppress this modal once onboarding is complete.
 
 ---
 
@@ -149,8 +152,8 @@ The number of entries is variable per version. The component reads entries dynam
 ## Maintenance workflow (per release)
 
 1. Bump `WHATS_NEW_VERSION` constant in `WhatsNew.tsx` to the new version string.
-2. **Replace** (not append) all `entry*` keys in the `whatsNew` namespace across **all 10 locale files** (`en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`) with the new version's changelog items. Also update the `version` key.
-3. Remove any `entry*` keys from the previous version that are no longer needed — the `whatsNew` namespace must only contain entries relevant to the current version.
+2. Update the `version` key across **all 10 locale files** (`en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`) to match the component constant.
+3. If new content is approved, replace the `entry*` content and remove obsolete entries. If only the version number is being bumped, preserve all entries exactly.
 4. Deploy. All existing users will see the modal on their next dashboard visit.
 
 No database migration, no backend change, no API endpoint needed.

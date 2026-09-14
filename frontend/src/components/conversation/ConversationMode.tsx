@@ -200,14 +200,14 @@ function TrialPremiumCta() {
       <h2 className="text-fl-fg mb-2 font-mono text-base font-bold">
         {tConversation('trialCtaTitle')}
       </h2>
-      <p className="text-fl-muted-1 mb-5 font-mono text-xs leading-relaxed">
+      <p className="text-fl-muted-1 mb-5 font-mono text-sm leading-relaxed">
         {tConversation('trialCtaDesc')}
       </p>
       <div className="flex flex-col gap-3">
         <button
           onClick={() => handleCheckout('yearly')}
           disabled={loading !== null}
-          className="bg-fl-accent text-fl-accent-fg hover:bg-fl-accent/90 w-full px-4 py-3 font-mono text-xs tracking-widest uppercase transition-colors disabled:opacity-50"
+          className="bg-fl-accent text-fl-accent-fg hover:bg-fl-accent/90 w-full px-4 py-3 font-mono text-sm tracking-widest uppercase transition-colors disabled:opacity-50"
         >
           {loading === 'yearly' ? (
             '...'
@@ -215,7 +215,7 @@ function TrialPremiumCta() {
             <span className="flex flex-col items-center gap-0.5 leading-relaxed">
               <span>{yearlyCta.main}</span>
               {yearlyCta.savings && (
-                <span className="text-fl-accent-fg/80 text-[0.68rem]">
+                <span className="text-fl-accent-fg text-xs">
                   {yearlyCta.savings}
                 </span>
               )}
@@ -225,7 +225,7 @@ function TrialPremiumCta() {
         <button
           onClick={() => handleCheckout('monthly')}
           disabled={loading !== null}
-          className="border-fl-border text-fl-muted-1 hover:text-fl-fg hover:border-fl-border-2 w-full border px-4 py-3 font-mono text-xs tracking-widest uppercase transition-colors disabled:opacity-50"
+          className="border-fl-border text-fl-muted-1 hover:text-fl-fg hover:border-fl-border-2 w-full border px-4 py-3 font-mono text-sm tracking-widest uppercase transition-colors disabled:opacity-50"
         >
           {loading === 'monthly'
             ? '...'
@@ -237,7 +237,7 @@ function TrialPremiumCta() {
       )}
       <button
         onClick={() => router.push('/plan')}
-        className="text-fl-hint text-fl-muted-4 hover:text-fl-muted-2 mt-5 w-full font-mono tracking-widest uppercase transition-colors"
+        className="text-fl-muted-4 hover:text-fl-muted-2 mt-5 w-full font-mono text-xs tracking-widest uppercase transition-colors"
       >
         {t('paywallSkip')}
       </button>
@@ -345,6 +345,8 @@ export default function ConversationMode({
   const cleanEndRef = useRef(false)
   const mountedRef = useRef(true)
   const startAttemptRef = useRef(0)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const vadOperationRef = useRef<Promise<void>>(Promise.resolve())
   const assistantSpeakingRef = useRef(false)
   const assistantTurnActiveRef = useRef(false)
   const speechStartedAtRef = useRef<number | null>(null)
@@ -359,10 +361,6 @@ export default function ConversationMode({
   useEffect(() => {
     assistantSpeakingRef.current = assistantSpeaking
   }, [assistantSpeaking])
-
-  useEffect(() => {
-    sessionActiveRef.current = sessionActive
-  }, [sessionActive])
 
   const isLikelySpeech = useCallback(
     (
@@ -396,13 +394,20 @@ export default function ConversationMode({
 
   // ─── VAD ──────────────────────────────────────────────────────────────────
   // MicVAD.new() loads the ONNX model but does NOT request mic permission yet.
-  // getUserMedia() is called only when vad.start() is invoked (inside handleStart,
-  // which runs during a user-gesture click).
+  // Acquire permission before entering VAD: a rejected first getStream leaves
+  // the installed MicVAD permanently errored. Both start paths reuse our stream.
+  const getMicStream = useCallback(async () => {
+    const stream = micStreamRef.current
+    if (!stream) throw new Error('No active microphone stream')
+    return stream
+  }, [])
   const vad = useMicVAD({
     baseAssetPath: '/vad/',
     onnxWASMBasePath: '/vad/',
     model: 'v5',
     startOnLoad: false,
+    getStream: getMicStream,
+    resumeStream: getMicStream,
     redemptionMs: resolveVadRedemptionMs(
       user?.conversation_speech_pause,
       cefrLevel
@@ -412,13 +417,19 @@ export default function ConversationMode({
       ort.env.wasm.numThreads = 1
     },
     onSpeechStart: () => {
+      if (!sessionActiveRef.current) return
       convLogger.info('vad speech start', {
         assistantSpeaking: assistantSpeakingRef.current,
       })
       speechStartedAtRef.current = performance.now()
       setUserSpeaking(true)
     },
+    onVADMisfire: () => {
+      speechStartedAtRef.current = null
+      if (mountedRef.current) setUserSpeaking(false)
+    },
     onSpeechEnd: (audio: Float32Array) => {
+      if (!mountedRef.current) return
       const minUtteranceMs = assistantTurnActiveRef.current
         ? INTERRUPTION_MIN_UTTERANCE_MS
         : MIN_UTTERANCE_MS
@@ -519,15 +530,29 @@ export default function ConversationMode({
 
       const ws = wsRef.current
       if (ws && ws.readyState === WebSocket.OPEN) {
-        const wav = float32ToWav(audio, 16000)
-        convLogger.info('sent user utterance to backend', {
-          bytes: wav.byteLength,
-          assistantSpeaking: assistantSpeakingRef.current,
-        })
-        ws.send(wav)
+        assistantTurnActiveRef.current = true
+        try {
+          const wav = float32ToWav(audio, 16000)
+          convLogger.info('sent user utterance to backend', {
+            bytes: wav.byteLength,
+            assistantSpeaking: assistantSpeakingRef.current,
+          })
+          ws.send(wav)
+          setErrorMsg(null)
+          setStatus('live')
+        } catch {
+          assistantTurnActiveRef.current = false
+          setErrorMsg(t('errorConnection'))
+          setStatus('error')
+          finalizeSession()
+        }
       }
     },
   })
+  const pauseVadRef = useRef(vad.pause)
+  useEffect(() => {
+    pauseVadRef.current = vad.pause
+  }, [vad.pause])
 
   const refreshCurrentUser = useCallback(async () => {
     try {
@@ -562,35 +587,64 @@ export default function ConversationMode({
 
   const finalizeSession = useCallback(
     (reason: 'manual' | 'route_unload' | 'unknown' = 'unknown') => {
+      if (
+        !sessionActiveRef.current &&
+        !wsRef.current &&
+        !micStreamRef.current &&
+        !audioCtxRef.current
+      )
+        return
       closeReasonRef.current = reason
-      if (!mountedRef.current) return
+      startAttemptRef.current++
+      sessionActiveRef.current = false
       activeTurnIdRef.current = null
       assistantTurnActiveRef.current = false
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'client_event',
-            event: 'session_close_request',
-            reason,
-          })
-        )
-      }
-      wsRef.current?.close()
+      assistantSpeakingRef.current = false
+      speechStartedAtRef.current = null
+      const ws = wsRef.current
       wsRef.current = null
-      vad.pause()
-      setAssistantSpeaking(false)
-      setUserSpeaking(false)
-      setStreamingText(null)
+      if (ws) {
+        ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'client_event',
+                event: 'session_close_request',
+                reason,
+              })
+            )
+          }
+        } catch {
+          // A closing transport must not prevent local resource cleanup.
+        }
+        try {
+          ws.close()
+        } catch {
+          // Continue releasing the microphone even if closing the WS fails.
+        }
+      }
+      micStreamRef.current?.getTracks().forEach((track) => track.stop())
+      micStreamRef.current = null
+      vadOperationRef.current = vadOperationRef.current
+        .then(() => pauseVadRef.current())
+        .catch(() => {})
       audioQueueRef.current?.cancel()
       audioQueueRef.current = null
       if (audioCtxRef.current) {
         void audioCtxRef.current.close().catch(() => {})
         audioCtxRef.current = null
       }
-      setSessionActive(false)
-      dismissTooltip()
+      if (mountedRef.current) {
+        setAssistantSpeaking(false)
+        setUserSpeaking(false)
+        setStreamingText(null)
+        setWarningSeconds(null)
+        setSessionActive(false)
+        dismissTooltip()
+      }
     },
-    [vad, dismissTooltip]
+    [dismissTooltip]
   )
 
   // Auto-scroll transcript to bottom. Any transcript mutation moves the bubbles,
@@ -632,8 +686,14 @@ export default function ConversationMode({
       const ws = new WebSocket(url)
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
+      const attempt = startAttemptRef.current
+      const isCurrent = () =>
+        mountedRef.current &&
+        startAttemptRef.current === attempt &&
+        wsRef.current === ws
 
       ws.onopen = () => {
+        if (!isCurrent()) return
         const authPayload: Record<string, unknown> = { type: 'auth', token }
         const storedVoice =
           typeof window !== 'undefined'
@@ -643,7 +703,14 @@ export default function ConversationMode({
         if (context?.length) authPayload.context = context
         if (targetLanguage) authPayload.target_language = targetLanguage
         if (voiceTrialToken) authPayload.voice_trial_token = voiceTrialToken
-        ws.send(JSON.stringify(authPayload))
+        try {
+          ws.send(JSON.stringify(authPayload))
+        } catch {
+          setErrorMsg(t('errorConnection'))
+          setStatus('error')
+          finalizeSession()
+          return
+        }
         sessionStartedAtRef.current = Date.now()
         convLogger.info('ws auth sent', {
           hasContext: !!context?.length,
@@ -653,6 +720,7 @@ export default function ConversationMode({
       }
 
       const handleAudioChunk = (arrayBuffer: ArrayBuffer): void => {
+        if (!isCurrent()) return
         const chunkId = ++ttsChunkIndexRef.current
         convLogger.warn('playback chunk received', {
           chunkId,
@@ -665,8 +733,10 @@ export default function ConversationMode({
           setAssistantSpeaking(false)
           return
         }
+        assistantSpeakingRef.current = true
         setAssistantSpeaking(true)
         void audioQueueRef.current.enqueue(arrayBuffer).catch((error) => {
+          if (!isCurrent()) return
           convLogger.error('audio queue enqueue failed', {
             chunkId,
             error: error instanceof Error ? error.message : String(error),
@@ -676,6 +746,7 @@ export default function ConversationMode({
       }
 
       ws.onmessage = (event) => {
+        if (!isCurrent()) return
         // Binary → TTS audio chunk
         if (event.data instanceof ArrayBuffer) {
           handleAudioChunk(event.data)
@@ -750,6 +821,7 @@ export default function ConversationMode({
               setStatus('live')
               convLogger.debug('status update', { value: msg.value })
               if (msg.value === 'transcribing') {
+                assistantTurnActiveRef.current = true
                 setAssistantSpeaking(false)
               } else if (msg.value === 'speaking') {
                 setAssistantSpeaking(true)
@@ -774,7 +846,6 @@ export default function ConversationMode({
                 code: msg.code,
                 message: msg.message,
               })
-              cleanEndRef.current = true
               setErrorMsg(
                 msg.code === 'services_disabled'
                   ? t('errorServicesDisabled')
@@ -790,7 +861,18 @@ export default function ConversationMode({
               )
               setStatus('error')
               assistantTurnActiveRef.current = false
-              ws.close()
+              if (
+                ['stt_failed', 'llm_failed', 'tts_failed'].includes(msg.code)
+              ) {
+                setStatus('live')
+                audioQueueRef.current?.cancel()
+                assistantSpeakingRef.current = false
+                setAssistantSpeaking(false)
+                setStreamingText(null)
+              } else {
+                cleanEndRef.current = true
+                finalizeSession()
+              }
               break
 
             case 'memory_updated':
@@ -803,6 +885,7 @@ export default function ConversationMode({
       }
 
       ws.onerror = () => {
+        if (!isCurrent()) return
         if (!cleanEndRef.current) {
           convLogger.error('ws onerror')
           setErrorMsg(`${t('errorConnection')} [onerror → ${url}]`)
@@ -812,6 +895,7 @@ export default function ConversationMode({
       }
 
       ws.onclose = (ev) => {
+        if (!isCurrent()) return
         convLogger.warn('ws closed', { code: ev.code, reason: ev.reason })
         if (!cleanEndRef.current) {
           if (ev.code === 1008) {
@@ -845,6 +929,7 @@ export default function ConversationMode({
       !accessToken ||
       vad.loading ||
       vad.errored ||
+      sessionActiveRef.current ||
       sessionActive ||
       status === 'warming' ||
       status === 'connecting' ||
@@ -853,9 +938,18 @@ export default function ConversationMode({
       return
 
     const startAttempt = ++startAttemptRef.current
+    sessionActiveRef.current = true
 
     // AudioContext MUST be created during a user-gesture (this click handler)
-    const ctx = new AudioContext()
+    let ctx: AudioContext
+    try {
+      ctx = new AudioContext()
+    } catch {
+      setErrorMsg(t('errorConnection'))
+      setStatus('error')
+      finalizeSession()
+      return
+    }
     audioCtxRef.current = ctx
     try {
       if (ctx.state === 'suspended') {
@@ -864,7 +958,11 @@ export default function ConversationMode({
     } catch (error) {
       convLogger.warn('audio context resume failed', { error })
     }
+    if (!mountedRef.current || startAttemptRef.current !== startAttempt) return
     audioQueueRef.current = createAudioQueue(ctx, () => {
+      if (!mountedRef.current || startAttemptRef.current !== startAttempt)
+        return
+      assistantSpeakingRef.current = false
       setAssistantSpeaking(false)
     })
 
@@ -890,17 +988,36 @@ export default function ConversationMode({
     setStatus('warming')
 
     // Start mic (requests permission if not already granted)
-    vad.start().catch((e: unknown) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseSuppression: true,
+        },
+      })
+      if (!mountedRef.current || startAttemptRef.current !== startAttempt) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      micStreamRef.current = stream
+      const startVad = vadOperationRef.current.then(async () => {
+        if (!mountedRef.current || startAttemptRef.current !== startAttempt)
+          return
+        await vad.start()
+      })
+      vadOperationRef.current = startVad.catch(() => {})
+      await startVad
+    } catch {
       if (!mountedRef.current || startAttemptRef.current !== startAttempt)
         return
-      startAttemptRef.current++
-      setErrorMsg(e instanceof Error ? e.message : t('errorMic'))
+      setErrorMsg(t('errorMic'))
       setStatus('error')
-      setSessionActive(false)
-      audioCtxRef.current?.close()
-      audioCtxRef.current = null
-      audioQueueRef.current = null
-    })
+      finalizeSession()
+      return
+    }
+    if (!mountedRef.current || startAttemptRef.current !== startAttempt) return
 
     const warmupResponsePromise = apiFetch('/api/conversation/warmup', {
       method: 'POST',
@@ -922,52 +1039,44 @@ export default function ConversationMode({
       ])) as Response
     } catch {
       if (!mountedRef.current || startAttemptRef.current !== startAttempt) {
-        ctx.close()
         return
       }
       setErrorMsg(`${t('errorConnection')} [warmup request failed]`)
       convLogger.error('warmup request failed')
       setStatus('error')
-      setSessionActive(false)
-      vad.pause()
-      ctx.close()
-      audioCtxRef.current = null
-      audioQueueRef.current = null
+      finalizeSession()
       return
     }
 
     if (!warmupResponse.ok) {
       if (!mountedRef.current || startAttemptRef.current !== startAttempt) {
-        ctx.close()
         return
       }
       setErrorMsg(`${t('errorConnection')} [warmup ${warmupResponse.status}]`)
       convLogger.error('warmup bad status', { status: warmupResponse.status })
       setStatus('error')
-      setSessionActive(false)
-      vad.pause()
-      ctx.close()
-      audioCtxRef.current = null
-      audioQueueRef.current = null
+      finalizeSession()
       return
     }
 
     if (!mountedRef.current || startAttemptRef.current !== startAttempt) {
-      ctx.close()
       return
     }
     const latestToken = useAuthStore.getState().accessToken
     if (!latestToken) {
       setErrorMsg(t('errorUnauthorized'))
       setStatus('error')
-      setSessionActive(false)
-      ctx.close()
-      audioCtxRef.current = null
-      audioQueueRef.current = null
+      finalizeSession()
       convLogger.error('no access token for websocket connect')
       return
     }
-    connectWs(latestToken, topicContext ?? initialContext)
+    try {
+      connectWs(latestToken, topicContext ?? initialContext)
+    } catch {
+      setErrorMsg(t('errorConnection'))
+      setStatus('error')
+      finalizeSession()
+    }
   }
 
   function handleStop() {
@@ -992,25 +1101,11 @@ export default function ConversationMode({
   // Cleanup on unmount
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    mountedRef.current = true
     return () => {
       mountedRef.current = false
-      startAttemptRef.current++
       cleanEndRef.current = true
-      assistantTurnActiveRef.current = false
-      closeReasonRef.current = 'route_unload'
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'client_event',
-            event: 'session_close_request',
-            reason: closeReasonRef.current,
-          })
-        )
-      }
-      wsRef.current?.close()
-      vad.pause()
-      audioQueueRef.current?.cancel()
-      audioCtxRef.current?.close()
+      finalizeSession('route_unload')
       sessionStartedAtRef.current = null
     }
   }, [])
@@ -1096,7 +1191,7 @@ export default function ConversationMode({
       </div>
 
       {/* Status message */}
-      {status === 'error' && errorMsg && (
+      {errorMsg && (
         <div className="border-fl-error/40 bg-fl-surface text-fl-error mb-4 border px-4 py-3 font-mono text-xs">
           ✕ {errorMsg}
         </div>

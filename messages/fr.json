@@ -1,5 +1,13 @@
 {
   "landing": {
+    "microDemo": {
+      "title": "Voici comment Lingu vous aide",
+      "exampleLabel": "Exemple de pratique en anglais",
+      "questionLabel": "Lingu · Question",
+      "answerLabel": "Vous · Réponse",
+      "correctionLabel": "Lingu · Correction",
+      "explanation": "Pour parler d'hier, utilisez « went », le prétérit de « go »."
+    },
     "hero": "Apprenez les langues avec un vrai partenaire de conversation vocale",
     "heroSub": "Parlez. Écoutez. Progressez.",
     "signIn": "Se connecter",
@@ -418,7 +426,7 @@
     "loadingProgress": "Chargement des progrès...",
     "noLevel": "Aucun niveau défini pour l'instant.",
     "completeAssessment": "Faire l'évaluation",
-    "allCaughtUp": "Tout à jour.",
+    "allCaughtUp": "Votre plan, à votre rythme",
     "startWithAssessment": "Commencez par une évaluation.",
     "takeAssessmentArrow": "Passer l'évaluation →",
     "goToMyPlan": "Mon plan →",
@@ -428,9 +436,10 @@
     "pendingLessons": "leçons en attente",
     "nextStep": "Prochaine étape",
     "assessmentCreatesPlan": "L'évaluation détermine votre niveau et crée un plan personnalisé pour votre langue active.",
-    "lessonReady": "Leçon prête",
+    "lessonReady": "Votre prochaine étape, à votre rythme",
     "pendingStillAvailable": "Vous avez {count} anciennes leçons en attente dans votre plan.",
-    "noPendingToday": "Vous avez terminé les leçons du jour. Vous pouvez revoir votre plan ou pratiquer une autre activité.",
+    "noPendingToday": "Consultez votre plan pour voir comment poursuivre.",
+    "planDayGoal": "Objectif de cette journée du plan",
     "lessonsCompleted": "Leçons",
     "accuracy": "Précision",
     "exerciseStats": "{correct}/{total} exercices",
@@ -569,12 +578,16 @@
     "voiceTrialSkip": "Skip for now"
   },
   "plan": {
+    "unitLocked": "Unité verrouillée",
+    "unitAvailable": "Unité disponible",
+    "lessonPending": "Leçon en attente",
     "title": "Mon plan",
     "subtitle": "Plan d'étude",
     "noPlan": "Aucun plan d'étude actif trouvé.",
     "startAssessment": "Faites d'abord l'évaluation",
     "week": "Semaine",
     "currentLesson": "Leçon actuelle",
+    "currentUnit": "Unité actuelle",
     "startLesson": "Commencer la leçon",
     "completed": "Terminé",
     "generating": "Génération de la leçon...",
@@ -614,6 +627,7 @@
     "levelTestResult": "Résultat du test de niveau",
     "testScore": "Score :",
     "pendingLessons": "Leçons en attente",
+    "pendingReassurance": "Vous pouvez les reprendre quand cela vous convient.",
     "resume": "Reprendre",
     "lessonsHeader": "Leçons · {count}",
     "reviewLesson": "Revoir",
@@ -644,7 +658,8 @@
     "vocabulary": "Vocabulaire",
     "label": "Leçon",
     "submitAnswer": "Soumettre la réponse",
-    "lessonDone": "Leçon terminée",
+    "lessonDone": "Beau travail. Leçon terminée.",
+    "exerciseSummary": "Exercices évalués : {completed} sur {total}",
     "score": "Score",
     "showNativeExplanation": "Voir en",
     "hint": "Indice",
@@ -667,7 +682,7 @@
     "exitConfirmTitle": "Quitter la leçon ?",
     "exitConfirmMessage": "Votre progression sur cette leçon sera perdue.",
     "dayComplete": "Journée terminée !",
-    "dayCompleteMsg": "Toutes les leçons d'aujourd'hui sont terminées."
+    "dayCompleteMsg": "Vous avez terminé cette journée du plan. Poursuivez quand cela vous convient."
   },
   "flashcards": {
     "title": "Fiches",
@@ -1122,7 +1137,7 @@
     "sessionEnded": "Session terminée",
     "tapToStart": "Parlez quand vous êtes prêt",
     "you": "Vous",
-    "assistant": "FreeLingo",
+    "assistant": "Lingu",
     "quotaSessions": "Séances cette semaine",
     "quotaMinutes": "Minutes aujourd'hui",
     "quotaUnlimited": "Illimité",
@@ -1447,9 +1462,21 @@
   },
   "whatsNew": {
     "title": "Nouveautés",
-    "version": "v1.8.50",
+    "version": "v1.9.5",
     "cta": "Compris",
     "entry1": {
+      "label": "Un style bien à nous",
+      "desc": "Des tons bleu pétrole et des fonds unis donnent plus de personnalité à FreeLingo, tout en conservant le design minimaliste que tu connais déjà."
+    },
+    "entry2": {
+      "label": "Une lecture plus confortable",
+      "desc": "Une police plus claire et de légers ajustements de taille, d'espacement et de contraste rendent tes leçons, explications et conversations plus agréables à lire."
+    },
+    "entry3": {
+      "label": "Des détails plus clairs",
+      "desc": "Les traductions et les notes d'aide sont plus faciles à lire. Notre site de présentation et nos e-mails bénéficient aussi d'une présentation plus lisible."
+    },
+    "entry4": {
       "label": "Une expérience plus fluide",
       "desc": "Des corrections de bugs et de petites améliorations rendent FreeLingo plus fiable et agréable à utiliser."
     }

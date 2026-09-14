@@ -1,5 +1,13 @@
 {
   "landing": {
+    "microDemo": {
+      "title": "Zo helpt Lingu je",
+      "exampleLabel": "Voorbeeld van een Engelse oefening",
+      "questionLabel": "Lingu · Vraag",
+      "answerLabel": "Jij · Antwoord",
+      "correctionLabel": "Lingu · Correctie",
+      "explanation": "Als je over gisteren praat, gebruik je 'went', de verleden tijd van 'go'."
+    },
     "hero": "Leer talen met een echte gesprekspartner via spraak",
     "heroSub": "Praat. Luister. Verbeter.",
     "signIn": "Inloggen",
@@ -418,7 +426,7 @@
     "loadingProgress": "Voortgang laden...",
     "noLevel": "Nog geen niveau ingesteld.",
     "completeAssessment": "Neem beoordeling",
-    "allCaughtUp": "Alles bijgewerkt.",
+    "allCaughtUp": "Jouw plan, op jouw tempo",
     "startWithAssessment": "Begin met een beoordeling.",
     "takeAssessmentArrow": "Beoordeling nemen →",
     "goToMyPlan": "Mijn plan →",
@@ -428,9 +436,10 @@
     "pendingLessons": "lopende lessen",
     "nextStep": "Volgende stap",
     "assessmentCreatesPlan": "De beoordeling bepaalt je niveau en maakt een persoonlijk plan voor je actieve taal.",
-    "lessonReady": "Les klaar",
+    "lessonReady": "Jouw volgende stap, op jouw tempo",
     "pendingStillAvailable": "Je hebt {count} eerdere lessen openstaan in je plan.",
-    "noPendingToday": "Je hebt de lessen van vandaag afgerond. Je kunt je plan bekijken of een andere activiteit oefenen.",
+    "noPendingToday": "Bekijk je plan om te zien hoe je verder kunt.",
+    "planDayGoal": "Doel voor deze dag van je plan",
     "lessonsCompleted": "Lessen",
     "accuracy": "Nauwkeurigheid",
     "exerciseStats": "{correct}/{total} oefeningen",
@@ -569,12 +578,16 @@
     "voiceTrialSkip": "Skip for now"
   },
   "plan": {
+    "unitLocked": "Eenheid vergrendeld",
+    "unitAvailable": "Eenheid beschikbaar",
+    "lessonPending": "Openstaande les",
     "title": "Mijn plan",
     "subtitle": "Studieplan",
     "noPlan": "Geen actief studieplan gevonden.",
     "startAssessment": "Neem eerst een beoordeling",
     "week": "Week",
     "currentLesson": "Huidige les",
+    "currentUnit": "Huidige eenheid",
     "startLesson": "Les starten",
     "completed": "Voltooid",
     "generating": "Les genereren...",
@@ -614,6 +627,7 @@
     "levelTestResult": "Niveautestresultaat",
     "testScore": "Score:",
     "pendingLessons": "Openstaande lessen",
+    "pendingReassurance": "Je kunt ze hervatten wanneer het jou uitkomt.",
     "resume": "Hervatten",
     "lessonsHeader": "Lessen · {count}",
     "reviewLesson": "Bekijken",
@@ -644,7 +658,8 @@
     "vocabulary": "Woordenschat",
     "label": "Les",
     "submitAnswer": "Antwoord versturen",
-    "lessonDone": "Les voltooid",
+    "lessonDone": "Goed gedaan. Les voltooid.",
+    "exerciseSummary": "Beoordeelde oefeningen: {completed} van {total}",
     "score": "Score",
     "showNativeExplanation": "Toon in",
     "hint": "Hint",
@@ -667,7 +682,7 @@
     "exitConfirmTitle": "Les afsluiten?",
     "exitConfirmMessage": "Je voortgang in deze les gaat verloren.",
     "dayComplete": "Dag voltooid!",
-    "dayCompleteMsg": "Alle lessen van vandaag zijn klaar."
+    "dayCompleteMsg": "Je hebt deze dag van je plan afgerond. Ga verder wanneer het jou uitkomt."
   },
   "flashcards": {
     "title": "Flashcards",
@@ -1122,7 +1137,7 @@
     "sessionEnded": "Sessie beëindigd",
     "tapToStart": "Spreek wanneer je klaar bent",
     "you": "Jij",
-    "assistant": "FreeLingo",
+    "assistant": "Lingu",
     "quotaSessions": "Sessies deze week",
     "quotaMinutes": "Minuten vandaag",
     "quotaUnlimited": "Onbeperkt",
@@ -1447,9 +1462,21 @@
   },
   "whatsNew": {
     "title": "Nieuw",
-    "version": "v1.8.50",
+    "version": "v1.9.5",
     "cta": "Begrepen",
     "entry1": {
+      "label": "Een eigen stijl",
+      "desc": "Petrolblauwe tinten en effen achtergronden geven FreeLingo meer karakter, met behoud van het minimalistische ontwerp dat je al kent."
+    },
+    "entry2": {
+      "label": "Prettiger lezen",
+      "desc": "Een duidelijker lettertype en subtiele aanpassingen aan tekstgrootte, afstand en contrast maken je lessen, uitleg en gesprekken prettiger om te lezen."
+    },
+    "entry3": {
+      "label": "Duidelijkere details",
+      "desc": "Vertalingen en handige toelichtingen zijn makkelijker te lezen. Ook onze informatieve website en e-mails hebben een beter leesbare vormgeving."
+    },
+    "entry4": {
       "label": "Een soepelere ervaring",
       "desc": "Bugfixes en kleine verbeteringen maken FreeLingo betrouwbaarder en prettiger in gebruik."
     }

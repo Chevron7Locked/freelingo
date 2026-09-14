@@ -1,198 +1,219 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import ConversationMode from '@/components/conversation/ConversationMode'
-import { useAuthStore } from '@/store/auth'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { useMicVAD } from '@ricky0123/vad-react'
 
-vi.mock('next-intl', () => ({
-  useTranslations: () => {
-    const t = ((key: string) => key) as ((key: string) => string) & {
-      raw: (key: string) => string[]
-    }
-    t.raw = (key: string) =>
-      key === 'starters' ? ['a', 'b', 'c', 'd', 'e', 'f'] : []
-    return t
-  },
-  useLocale: () => 'en',
-}))
-
-const mockApiFetch = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/api', () => ({ apiFetch: mockApiFetch }))
-
-vi.mock('@/lib/conversation-ws', () => ({
-  buildConversationWsUrl: () => 'ws://test',
-}))
-
-vi.mock('@/lib/audio', () => ({
-  createAudioQueue: () => ({
-    enqueue: vi.fn().mockResolvedValue(undefined),
-    cancel: vi.fn(),
-  }),
-  float32ToWav: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  options: {} as Parameters<typeof useMicVAD>[0],
+  start: vi.fn(),
+  pause: vi.fn(),
+  getUserMedia: vi.fn(),
+  apiFetch: vi.fn(),
+  enqueue: vi.fn(),
+  cancel: vi.fn(),
+  closeAudio: vi.fn(),
 }))
 
 vi.mock('@ricky0123/vad-react', () => ({
-  useMicVAD: () => ({
-    loading: false,
-    errored: false,
-    start: vi.fn().mockResolvedValue(undefined),
-    pause: vi.fn(),
-    listening: false,
-    userSpeaking: false,
-  }),
+  useMicVAD: (options: Parameters<typeof useMicVAD>[0]) => {
+    mocks.options = options
+    return { loading: false, errored: false, start: mocks.start, pause: mocks.pause }
+  },
+}))
+vi.mock('next-intl', () => ({
+  useTranslations: () => Object.assign((key: string) => key, { raw: () => [] }),
+}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('@/lib/api', () => ({ apiFetch: mocks.apiFetch }))
+vi.mock('@/lib/audio', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/audio')>()),
+  createAudioQueue: () => ({ enqueue: mocks.enqueue, cancel: mocks.cancel }),
+}))
+vi.mock('@/components/reviews/ReviewPrompt', () => ({
+  ReviewPrompt: () => null,
+  getReviewPromptDismissal: () => null,
+}))
+vi.mock('@/lib/review-prompt-triggers', () => ({ shouldShowVoiceReviewPrompt: () => false }))
+vi.mock('@/components/conversation/StatusIndicator', () => ({
+  default: ({ userSpeaking }: { userSpeaking: boolean }) => (
+    <div data-testid="speaking">{String(userSpeaking)}</div>
+  ),
 }))
 
-class MockAudioContext {
-  state = 'running'
-  resume = vi.fn().mockResolvedValue(undefined)
-  close = vi.fn().mockResolvedValue(undefined)
-}
+import ConversationMode from '@/components/conversation/ConversationMode'
+import { useAuthStore } from '@/store/auth'
 
 class MockWebSocket {
   static OPEN = 1
   static instances: MockWebSocket[] = []
-  static get last(): MockWebSocket | undefined {
-    return MockWebSocket.instances[MockWebSocket.instances.length - 1]
-  }
-
   readyState = 1
   binaryType = ''
-  onopen: ((ev: Event) => void) | null = null
-  onmessage: ((ev: MessageEvent) => void) | null = null
-  onclose: ((ev: CloseEvent) => void) | null = null
-  onerror: ((ev: Event) => void) | null = null
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: unknown }) => void) | null = null
+  onerror: (() => void) | null = null
+  onclose: ((event: { code: number; reason: string }) => void) | null = null
   send = vi.fn()
-  close = vi.fn()
+  close = vi.fn(() => { this.readyState = 3 })
 
-  constructor(public url: string) {
-    MockWebSocket.instances.push(this)
+  constructor() { MockWebSocket.instances.push(this) }
+
+  message(message: unknown) {
+    this.onmessage?.({ data: JSON.stringify(message) })
   }
 }
 
-function mockSelection(word: string) {
-  const rect = { left: 10, top: 20, width: 30, height: 10 }
-  const selection = {
-    isCollapsed: false,
-    rangeCount: 1,
-    toString: () => word,
-    getRangeAt: () => ({ getBoundingClientRect: () => rect }),
-    removeAllRanges: vi.fn(),
-  }
-  vi.spyOn(window, 'getSelection').mockReturnValue(
-    selection as unknown as Selection
-  )
+function microphone() {
+  const stop = vi.fn()
+  return { stream: { getTracks: () => [{ stop }] } as unknown as MediaStream, stop }
 }
 
-async function selectWordInBubble(bubbleText: string, word: string) {
-  mockSelection(word)
-  fireEvent.pointerUp(screen.getByText(bubbleText))
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0))
+async function start(label = 'start') {
+  const count = MockWebSocket.instances.length
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  await waitFor(() => expect(MockWebSocket.instances).toHaveLength(count + 1))
+  const ws = MockWebSocket.instances[count]
+  act(() => ws.onopen?.())
+  ws.send.mockClear()
+  return ws
+}
+
+function speak() {
+  mocks.options.onSpeechStart?.()
+  mocks.options.onSpeechEnd?.(new Float32Array(24000).fill(0.05))
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  MockWebSocket.instances = []
+  mocks.getUserMedia.mockReset().mockResolvedValue(microphone().stream)
+  mocks.start.mockImplementation(async () => { await mocks.options.getStream?.() })
+  mocks.pause.mockResolvedValue(undefined)
+  mocks.closeAudio.mockResolvedValue(undefined)
+  mocks.enqueue.mockResolvedValue(undefined)
+  mocks.apiFetch.mockResolvedValue({ ok: true, json: async () => null })
+  vi.stubGlobal('WebSocket', MockWebSocket)
+  vi.stubGlobal('AudioContext', class {
+    state = 'running'
+    close = mocks.closeAudio
   })
-}
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: mocks.getUserMedia } })
+  Element.prototype.scrollIntoView = vi.fn()
+  useAuthStore.setState({ accessToken: 'token', user: null })
+})
 
-async function startSession() {
-  fireEvent.click(screen.getByText('start'))
-  await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(0))
-  act(() => {
-    MockWebSocket.last?.onopen?.(new Event('open'))
-  })
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'stop' })).toBeInTheDocument()
-  )
-}
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
-function deliverTranscript(payload: Record<string, unknown>) {
-  act(() => {
-    MockWebSocket.last?.onmessage?.({
-      data: JSON.stringify({ type: 'transcript', final: true, ...payload }),
-    } as MessageEvent)
-  })
-}
-
-const baseUser = {
-  id: 1,
-  username: 'u',
-  displayName: 'U',
-  role: 'user' as const,
-  conversation_max_duration: 1800,
-  conversation_inactivity_timeout: 180,
-}
-
-describe('ConversationMode word tooltip dismissal', () => {
-  beforeAll(() => {
-    Element.prototype.scrollIntoView = vi.fn()
+describe('ConversationMode session lifecycle', () => {
+  it('retries denied permission without poisoning VAD', async () => {
+    mocks.getUserMedia.mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'))
+    render(<ConversationMode />)
+    fireEvent.click(screen.getByRole('button', { name: 'start' }))
+    await screen.findByText(/errorMic/)
+    expect(mocks.start).not.toHaveBeenCalled()
+    await start('startNew')
+    expect(mocks.start).toHaveBeenCalledTimes(1)
   })
 
-  beforeEach(() => {
-    mockApiFetch.mockReset()
-    mockApiFetch.mockImplementation(async (url: string) => {
-      if (url === '/api/auth/quota') {
-        return { ok: true, json: async () => null }
-      }
-      return { ok: true, json: async () => ({}) }
+  it('stops a microphone granted after unmount without starting VAD or WS', async () => {
+    const mic = microphone()
+    let grant!: (stream: MediaStream) => void
+    mocks.getUserMedia.mockReturnValue(new Promise<MediaStream>((resolve) => { grant = resolve }))
+    const view = render(<ConversationMode />)
+    fireEvent.click(screen.getByRole('button', { name: 'start' }))
+    view.unmount()
+    await act(async () => { grant(mic.stream) })
+    expect(mic.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.start).not.toHaveBeenCalled()
+    expect(MockWebSocket.instances).toHaveLength(0)
+  })
+
+  it.each(['json', 'onerror', 'onclose'])('cleans up %s once and ignores obsolete callbacks after restart', async (kind) => {
+    const mic = microphone()
+    mocks.getUserMedia.mockResolvedValueOnce(mic.stream)
+    render(<ConversationMode />)
+    const ws = await start()
+    const oldOpen = ws.onopen!
+    const oldMessage = ws.onmessage!
+    const oldError = ws.onerror!
+    const oldClose = ws.onclose!
+    act(() => {
+      if (kind === 'json') ws.message({ type: 'error', code: 'unauthorized' })
+      else if (kind === 'onerror') oldError()
+      else oldClose({ code: 1006, reason: '' })
+      oldError()
+      oldClose({ code: 1006, reason: '' })
     })
-    useAuthStore.setState({ accessToken: 'tok', user: { ...baseUser } })
-    MockWebSocket.instances = []
-    globalThis.AudioContext = MockAudioContext as unknown as typeof AudioContext
-    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    await waitFor(() => expect(mocks.pause).toHaveBeenCalledTimes(1))
+    expect(mic.stop).toHaveBeenCalledTimes(1)
+    expect(mocks.closeAudio).toHaveBeenCalledTimes(1)
+    expect(ws.close).toHaveBeenCalledTimes(1)
+    const current = await start('startNew')
+    act(() => {
+      oldOpen()
+      oldMessage({ data: JSON.stringify({ type: 'session_end', reason: 'inactivity' }) })
+      oldError()
+      oldClose({ code: 1006, reason: '' })
+    })
+    expect(current.close).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'stop' })).toBeDefined()
   })
 
-  it('dismisses the word tooltip when a new transcript turn arrives', async () => {
-    render(<ConversationMode targetLanguage="es" />)
-    await startSession()
-
-    deliverTranscript({
-      role: 'assistant',
-      text: 'El perro corre',
-      turn_id: 1,
-    })
-    await selectWordInBubble('El perro corre', 'perro')
-    expect(screen.getByText('saveWord')).toBeInTheDocument()
-    expect(screen.getByText('perro')).toBeInTheDocument()
-
-    deliverTranscript({ role: 'user', text: 'Ya veo', turn_id: 2 })
-
-    expect(screen.queryByText('saveWord')).not.toBeInTheDocument()
+  it.each([
+    { type: 'status', value: 'listening' },
+    { type: 'turn_complete' },
+    ...['stt_failed', 'llm_failed', 'tts_failed'].map((code) => ({ type: 'error', code })),
+  ])('blocks immediately and releases on $type $value $code', async (outcome) => {
+    render(<ConversationMode />)
+    const ws = await start()
+    act(() => { speak(); speak() })
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    act(() => ws.message({ type: 'status', value: 'transcribing' }))
+    act(() => speak())
+    expect(ws.send).toHaveBeenCalledTimes(1)
+    act(() => ws.message(outcome))
+    expect(screen.getByRole('button', { name: 'stop' })).toBeDefined()
+    act(() => speak())
+    expect(ws.send).toHaveBeenCalledTimes(2)
+    expect(ws.close).not.toHaveBeenCalled()
   })
 
-  it('dismisses the word tooltip when the session is stopped', async () => {
-    render(<ConversationMode targetLanguage="es" />)
-    await startSession()
-
-    deliverTranscript({
-      role: 'assistant',
-      text: 'El perro corre',
-      turn_id: 1,
-    })
-    await selectWordInBubble('El perro corre', 'perro')
-    expect(screen.getByText('saveWord')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'stop' }))
-
-    expect(screen.queryByText('saveWord')).not.toBeInTheDocument()
+  it('clears visual speech and discards the unfinished segment on misfire', async () => {
+    render(<ConversationMode />)
+    const ws = await start()
+    act(() => { mocks.options.onSpeechStart?.() })
+    expect(screen.getByTestId('speaking').textContent).toBe('true')
+    act(() => { mocks.options.onVADMisfire?.() })
+    expect(screen.getByTestId('speaking').textContent).toBe('false')
+    act(() => { mocks.options.onSpeechEnd?.(new Float32Array(24000).fill(0.05)) })
+    expect(ws.send).not.toHaveBeenCalled()
   })
 
-  it('dismisses the word tooltip and clears the transcript when a new session is started', async () => {
-    render(<ConversationMode targetLanguage="es" />)
-    await startSession()
+  it('ignores a Blob decoded after a new session has started', async () => {
+    render(<ConversationMode />)
+    const ws = await start()
+    let decode!: (buffer: ArrayBuffer) => void
+    const blob = new Blob()
+    blob.arrayBuffer = vi.fn(() => new Promise<ArrayBuffer>((resolve) => { decode = resolve }))
+    act(() => ws.onmessage?.({ data: blob }))
+    act(() => ws.onerror?.())
+    const current = await start('startNew')
+    await act(async () => { decode(new ArrayBuffer(8)) })
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+    expect(current.close).not.toHaveBeenCalled()
+    act(() => speak())
+    expect(current.send).toHaveBeenCalledTimes(1)
+  })
 
-    deliverTranscript({
-      role: 'assistant',
-      text: 'El perro corre',
-      turn_id: 1,
-    })
-    await selectWordInBubble('El perro corre', 'perro')
-    expect(screen.getByText('saveWord')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'stop' }))
-    expect(screen.getByText('El perro corre')).toBeInTheDocument()
-
-    await selectWordInBubble('El perro corre', 'perro')
-    expect(screen.getByText('saveWord')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByText('startNew'))
-
-    expect(screen.queryByText('saveWord')).not.toBeInTheDocument()
-    expect(screen.queryByText('El perro corre')).not.toBeInTheDocument()
+  it('releases resources after a WAV send throws and allows restart', async () => {
+    render(<ConversationMode />)
+    const ws = await start()
+    ws.send.mockImplementationOnce(() => { throw new Error('Transport closed') })
+    act(() => speak())
+    expect(ws.close).toHaveBeenCalledTimes(1)
+    const current = await start('startNew')
+    act(() => speak())
+    expect(current.send).toHaveBeenCalledTimes(1)
   })
 })

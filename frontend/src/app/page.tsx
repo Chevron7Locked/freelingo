@@ -109,7 +109,7 @@ export default async function Home() {
   }
 
   return (
-    <div className="bg-fl-bg bg-dot-grid text-fl-fg flex min-h-screen flex-col">
+    <div className="bg-fl-bg text-fl-fg flex min-h-screen flex-col">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -147,7 +147,7 @@ export default async function Home() {
         <div className="flex flex-col items-center gap-3 sm:flex-row">
           <Link
             href={hasSession ? '/dashboard' : '/register'}
-            className="bg-fl-accent text-fl-accent-fg hover:bg-fl-accent/90 px-8 py-3 font-mono text-xs font-bold tracking-widest uppercase transition-colors"
+            className="bg-fl-accent text-fl-accent-fg hover:bg-fl-accent/90 px-8 py-3 font-mono text-sm font-bold tracking-widest uppercase transition-colors"
           >
             {hasSession ? t('dashboard') : tCommon('start')}
           </Link>
@@ -157,6 +157,67 @@ export default async function Home() {
           >
             {t('howItWorks')} ↓
           </a>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="lingu-demo-title"
+        className="mx-auto w-full max-w-5xl px-6 pb-12"
+      >
+        <div className="border-fl-border bg-fl-surface mx-auto max-w-xl border">
+          <div className="border-fl-border border-b px-5 py-4 sm:px-6">
+            <h2
+              id="lingu-demo-title"
+              className="text-fl-fg font-mono text-base font-bold"
+            >
+              {t('microDemo.title')}
+            </h2>
+            <p className="text-fl-caption text-fl-muted-1 mt-1 font-mono">
+              {t('microDemo.exampleLabel')}
+            </p>
+          </div>
+          <div className="space-y-5 p-5 sm:p-6">
+            <div>
+              <p className="text-fl-caption text-fl-muted-1 mb-2 font-mono">
+                {t('microDemo.questionLabel')}
+              </p>
+              <p
+                lang="en-GB"
+                className="text-fl-fg font-mono text-sm leading-relaxed"
+              >
+                What did you do yesterday?
+              </p>
+            </div>
+            <div className="border-fl-border border-l-2 pl-4">
+              <p className="text-fl-caption text-fl-muted-1 mb-2 font-mono">
+                {t('microDemo.answerLabel')}
+              </p>
+              <p
+                lang="en-GB"
+                className="text-fl-fg-2 font-mono text-sm leading-relaxed"
+              >
+                Yesterday I go to the park.
+              </p>
+            </div>
+            <div className="border-fl-accent/40 border-l-2 pl-4">
+              <p className="text-fl-caption text-fl-muted-1 mb-2 font-mono">
+                {t('microDemo.correctionLabel')}
+              </p>
+              <p
+                lang="en-GB"
+                className="text-fl-fg font-mono text-sm leading-relaxed"
+              >
+                Yesterday I{' '}
+                <strong className="font-bold underline underline-offset-4">
+                  went
+                </strong>{' '}
+                to the park.
+              </p>
+              <p className="text-fl-muted-1 mt-2 font-mono text-sm leading-relaxed">
+                {t('microDemo.explanation')}
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -263,7 +324,7 @@ export default async function Home() {
               </div>
             </div>
             <a
-              href="https://github.com/ArtCC/freelingo"
+              href="https://github.com/artcc/freelingo"
               target="_blank"
               rel="noopener noreferrer"
               className="border-fl-border text-fl-muted-1 hover:text-fl-fg hover:border-fl-border-2 border px-6 py-2.5 font-mono text-xs font-bold tracking-widest whitespace-nowrap uppercase transition-colors"
@@ -291,7 +352,7 @@ export default async function Home() {
       <footer className="border-fl-border border-t px-6 py-10">
         <div className="mx-auto grid max-w-4xl grid-cols-2 gap-8 md:grid-cols-4">
           <div>
-            <span className="text-fl-hint text-fl-muted-3 block font-mono tracking-widest uppercase">
+            <span className="text-fl-hint text-fl-muted-3 font-code block tracking-widest uppercase">
               FreeLingo
             </span>
             <span className="text-fl-hint text-fl-muted-4 mt-2 block font-mono leading-relaxed">
@@ -304,7 +365,7 @@ export default async function Home() {
             </h4>
             <div className="flex flex-col gap-2">
               <a
-                href="https://github.com/ArtCC/freelingo"
+                href="https://github.com/artcc/freelingo"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-fl-hint text-fl-muted-3 hover:text-fl-muted-1 font-mono tracking-widest uppercase transition-colors"

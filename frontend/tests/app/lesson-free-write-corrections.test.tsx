@@ -185,13 +185,9 @@ function annotatedBlock(container: HTMLElement): HTMLElement {
   return del.closest('.whitespace-pre-wrap') as HTMLElement
 }
 
-// The header exit button also renders ✕; the score badge is a span.
-function scoreBadge(symbol: string): HTMLElement {
-  const badges = screen
-    .getAllByText(symbol)
-    .filter((el) => el.tagName === 'SPAN')
-  expect(badges).toHaveLength(1)
-  return badges[0]
+// The score badge is the labelled icon rendered next to the answer field.
+function scoreBadge(label: string): HTMLElement {
+  return screen.getByRole('img', { name: label })
 }
 
 describe('LessonPage free-write corrections', () => {
@@ -226,7 +222,7 @@ describe('LessonPage free-write corrections', () => {
     expect(block.textContent).toBe(
       'Ich habe viele abenteuer Abenteuer gehabt. Ich bin mit auto mit dem Auto gefahren.'
     )
-    expect(block.className).toContain('border-amber-500/40')
+    expect(block.className).toContain('border-amber-500/50')
     const inlineDeletions = Array.from(block.querySelectorAll('del')).map(
       (el) => el.textContent
     )
@@ -236,7 +232,7 @@ describe('LessonPage free-write corrections', () => {
     expect(inlineDeletions).toEqual(['abenteuer', 'mit auto'])
     expect(inlineInsertions).toEqual(['Abenteuer', 'mit dem Auto'])
 
-    expect(scoreBadge('±')).toHaveClass('text-amber-400')
+    expect(scoreBadge('corrections')).toHaveClass('text-amber-400')
 
     // Corrections list shows every correction, including the one whose
     // fragment does not occur in the answer.
@@ -267,11 +263,11 @@ describe('LessonPage free-write corrections', () => {
 
     expect(screen.queryByPlaceholderText('yourAnswer')).toBeNull()
     const block = annotatedBlock(container)
-    expect(block.className).toContain('border-amber-500/40')
+    expect(block.className).toContain('border-amber-500/50')
     expect(
       Array.from(block.querySelectorAll('ins')).map((el) => el.textContent)
     ).toEqual(['Abenteuer', 'mit dem Auto'])
-    expect(scoreBadge('±')).toHaveClass('text-amber-400')
+    expect(scoreBadge('corrections')).toHaveClass('text-amber-400')
     expect(
       screen.getByText('corrections').closest('div')?.querySelectorAll('li')
     ).toHaveLength(3)
@@ -292,9 +288,9 @@ describe('LessonPage free-write corrections', () => {
     await screen.findByText('Could not evaluate the answer.')
     const textarea = screen.getByPlaceholderText('yourAnswer')
     expect(textarea).toBeDisabled()
-    expect(textarea.className).toContain('border-red-500/40')
-    expect(scoreBadge('✕')).toHaveClass('text-red-400')
-    expect(screen.queryByText('±')).toBeNull()
+    expect(textarea.className).toContain('border-fl-error-fg/50')
+    expect(scoreBadge('incorrect')).toHaveClass('text-fl-error-fg')
+    expect(screen.queryByRole('img', { name: 'corrections' })).toBeNull()
     expect(screen.queryByText('corrections')).toBeNull()
     expect(container.querySelector('del')).toBeNull()
   })
@@ -312,7 +308,7 @@ describe('LessonPage free-write corrections', () => {
     await submitFreeWriteAnswer()
 
     await screen.findByText('Good.')
-    expect(scoreBadge('✕')).toHaveClass('text-red-400')
+    expect(scoreBadge('incorrect')).toHaveClass('text-fl-error-fg')
     expect(screen.queryByText('corrections')).toBeNull()
   })
 })

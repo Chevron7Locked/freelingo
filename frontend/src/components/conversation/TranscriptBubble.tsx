@@ -32,10 +32,10 @@ export default function TranscriptBubble({
       {/* Avatar */}
       <div className="relative mb-0.5 flex-shrink-0">
         <span
-          className={`pointer-events-none absolute inset-[-5px] rounded-full border-2 transition-[border-color,opacity] duration-700 ${
+          className={`pointer-events-none absolute inset-[-5px] rounded-full border-2 transition-[border-color,opacity] duration-700 motion-reduce:animate-none motion-reduce:transition-none ${
             speaking
               ? 'border-fl-accent/65 animate-halo-speaking'
-              : 'border-fl-accent/15 animate-halo-idle'
+              : 'border-fl-accent/15'
           }`}
         />
         <div className="border-fl-border h-7 w-7 overflow-hidden rounded-full border">
@@ -75,13 +75,13 @@ export default function TranscriptBubble({
       <div
         className={`flex max-w-[75%] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}
       >
-        <span className="text-fl-label text-fl-muted-4 font-mono tracking-widest uppercase">
+        <span className="text-fl-caption text-fl-muted-1 font-sans tracking-wide uppercase">
           {isUser ? t('you') : t('assistant')}
         </span>
         <TargetLanguageText
           as="div"
           languageCode={languageCode}
-          className={`border px-4 py-3 ${
+          className={`max-w-[70ch] border px-4 py-3 ${
             isUser
               ? 'bg-fl-accent text-fl-accent-fg border-fl-accent'
               : 'bg-fl-surface text-fl-fg border-fl-border'
@@ -89,7 +89,7 @@ export default function TranscriptBubble({
         >
           {text}
           {streaming && (
-            <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-current align-middle" />
+            <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-current align-middle motion-reduce:animate-none" />
           )}
         </TargetLanguageText>
       </div>

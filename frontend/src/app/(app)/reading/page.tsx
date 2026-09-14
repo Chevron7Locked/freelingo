@@ -311,7 +311,7 @@ function ReadingPage() {
           </h1>
           <button
             onClick={loadNext}
-            className="text-fl-label text-fl-muted-2 hover:text-fl-fg font-mono tracking-widest uppercase transition-colors"
+            className="text-fl-muted-2 hover:text-fl-fg font-mono text-xs tracking-widest uppercase transition-colors"
           >
             {t('practiceMore')}
           </button>
@@ -365,7 +365,7 @@ function ReadingPage() {
                     setIsReplay(true)
                     setPageState('exercise')
                   }}
-                  className="text-fl-label text-fl-muted-2 hover:text-fl-fg font-mono tracking-widest uppercase transition-colors"
+                  className="text-fl-muted-2 hover:text-fl-fg font-mono text-xs tracking-widest uppercase transition-colors"
                 >
                   {t('practiceAgain')}
                 </button>
@@ -435,8 +435,8 @@ function ReadingPage() {
                 key={q.index}
                 className={`border p-4 ${
                   isCorrect
-                    ? 'border-green-600/50 bg-green-950/30'
-                    : 'border-red-600/50 bg-red-950/30'
+                    ? 'border-fl-success/50 bg-fl-success/5'
+                    : 'border-fl-error-fg/50 bg-fl-error-fg/5'
                 }`}
               >
                 <TargetLanguageText
@@ -452,10 +452,10 @@ function ReadingPage() {
                       key={k}
                       className={`px-3 py-1.5 ${
                         k === correctKey
-                          ? 'font-bold text-green-400'
+                          ? 'text-fl-success font-bold'
                           : k === userAnswer && !isCorrect
-                            ? 'text-red-400 line-through opacity-70'
-                            : 'text-fl-muted-3'
+                            ? 'text-fl-error-fg line-through'
+                            : 'text-fl-muted-1'
                       }`}
                     >
                       <span className="text-fl-label font-mono font-bold">
@@ -476,7 +476,7 @@ function ReadingPage() {
         <div className="flex gap-3 pt-1">
           <button
             onClick={loadNext}
-            className="border-fl-border bg-fl-surface text-fl-fg hover:bg-fl-surface-2 flex-1 border py-3 font-mono text-xs tracking-widest uppercase transition-colors"
+            className="border-fl-border bg-fl-surface text-fl-fg hover:bg-fl-surface-2 flex-1 border py-3 font-mono text-sm tracking-widest uppercase transition-colors"
           >
             {t('nextExercise')}
           </button>
@@ -506,14 +506,16 @@ function ReadingPage() {
           </h1>
           <button
             onClick={() => loadHistory(0)}
-            className="text-fl-label text-fl-muted-2 hover:text-fl-fg font-mono tracking-widest uppercase transition-colors"
+            className="text-fl-muted-2 hover:text-fl-fg font-mono text-xs tracking-widest uppercase transition-colors"
           >
             {t('history')}
           </button>
         </div>
 
         {error && (
-          <p className="text-fl-label mb-4 font-mono text-red-500">{error}</p>
+          <p className="text-fl-caption text-fl-error-fg mb-4 font-mono">
+            {error}
+          </p>
         )}
 
         <FreemiumQuotaBanner feature="reading" className="mb-4" />
@@ -527,7 +529,7 @@ function ReadingPage() {
             </p>
             <button
               onClick={handleGenerate}
-              className="border-fl-border bg-fl-surface text-fl-fg hover:bg-fl-surface-2 border px-8 py-3 font-mono text-xs tracking-widest uppercase transition-colors"
+              className="border-fl-border bg-fl-surface text-fl-fg hover:bg-fl-surface-2 border px-8 py-3 font-mono text-sm tracking-widest uppercase transition-colors"
             >
               {t('generate')}
             </button>
@@ -543,7 +545,7 @@ function ReadingPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-fl-fg font-mono text-sm font-bold tracking-widest uppercase">
             {t('title')}
@@ -554,7 +556,7 @@ function ReadingPage() {
         </div>
         <button
           onClick={() => loadHistory(0)}
-          className="text-fl-label text-fl-muted-2 hover:text-fl-fg shrink-0 font-mono tracking-widest uppercase transition-colors"
+          className="text-fl-muted-2 hover:text-fl-fg shrink-0 font-mono text-xs tracking-widest uppercase transition-colors"
         >
           {t('history')}
         </button>
@@ -586,13 +588,13 @@ function ReadingPage() {
                   <TargetLanguageText
                     as="p"
                     languageCode={exercise.target_language}
-                    className="reading-text text-fl-fg word-selectable cursor-text whitespace-pre-wrap select-text"
+                    className="reading-text text-fl-fg word-selectable max-w-[70ch] cursor-text whitespace-pre-wrap select-text"
                   >
                     {exercise.text}
                   </TargetLanguageText>
                 </div>
               </div>
-              <p className="text-fl-label text-fl-muted-4 mt-2 text-center font-mono tracking-widest uppercase">
+              <p className="text-fl-caption text-fl-muted-1 mt-2 text-center font-sans leading-relaxed">
                 {t('selectWordHint')}
               </p>
             </div>
@@ -633,7 +635,7 @@ function ReadingPage() {
                             className={`w-full border px-3 py-2 text-left transition-colors ${
                               selected
                                 ? 'border-fl-accent text-fl-fg bg-fl-surface-2'
-                                : 'border-fl-border text-fl-muted-2 hover:border-fl-muted-2 hover:text-fl-fg'
+                                : 'border-fl-border text-fl-muted-1 hover:border-fl-muted-2 hover:text-fl-fg'
                             }`}
                           >
                             <span className="text-fl-label font-mono font-bold">
@@ -653,7 +655,7 @@ function ReadingPage() {
               </div>
 
               {error && (
-                <p className="text-fl-label mt-3 font-mono text-red-500">
+                <p className="text-fl-caption text-fl-error-fg mt-3 font-mono">
                   {error}
                 </p>
               )}
@@ -661,7 +663,7 @@ function ReadingPage() {
               <button
                 onClick={handleSubmit}
                 disabled={!allAnswered || submitting}
-                className="border-fl-border bg-fl-surface text-fl-fg hover:bg-fl-surface-2 mt-4 w-full border py-3 font-mono text-xs tracking-widest uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                className="border-fl-border bg-fl-fg text-fl-bg hover:bg-fl-fg/90 focus-visible:outline-fl-fg mt-4 w-full border py-3 font-mono text-sm font-bold tracking-widest uppercase transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {submitting ? '...' : t('submit')}
               </button>

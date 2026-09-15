@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Study plan unit distribution (#316)**: new plans no longer front-load the first unit (15 of 47 lessons on one grammar topic in the reported 12-week × 4-day case) or leave the final units without lessons. `distribute_units()` gives every curriculum unit a fair quota of the teaching slots, spreads the remainder one slot each across the earliest units, and fills each quota by cycling that unit's own lesson types in order; types beyond a unit's quota are not scheduled. Plans too short to give every curriculum unit a lesson — and requests naming a CEFR level the curriculum does not cover — are now rejected before any state changes instead of being saved incomplete. Existing plans are unchanged.
+
 ## [1.9.10] - 2026-09-15
 
 ### Added

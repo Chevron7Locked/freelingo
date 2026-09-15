@@ -21,6 +21,7 @@ import StatusIndicator, { type ConvStatus } from './StatusIndicator'
 import TranscriptBubble from './TranscriptBubble'
 import SessionTimeoutBanner from './SessionTimeoutBanner'
 import MicButton from './MicButton'
+import { WordTooltip, useWordSave } from '@/components/ui/WordTooltip'
 import { type QuotaStatus } from '@/types/api'
 import {
   ReviewPrompt,
@@ -301,6 +302,14 @@ export default function ConversationMode({
   } = useTransientToast()
   const [quota, setQuota] = useState<QuotaStatus | null>(null)
   const [reviewPromptOpen, setReviewPromptOpen] = useState(false)
+  const {
+    selectedWord,
+    tooltipPos,
+    saveState,
+    handleTextSelection,
+    handleSaveWord,
+    dismissTooltip,
+  } = useWordSave()
 
   // 6 random starters picked once per component mount, shown alphabetically
   const visibleStarters = useMemo(
@@ -632,15 +641,18 @@ export default function ConversationMode({
         setStreamingText(null)
         setWarningSeconds(null)
         setSessionActive(false)
+        dismissTooltip()
       }
     },
-    []
+    [dismissTooltip]
   )
 
-  // Auto-scroll transcript to bottom
+  // Auto-scroll transcript to bottom. Any transcript mutation moves the bubbles,
+  // so a word tooltip anchored to old viewport coordinates is dropped with it.
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [transcript, streamingText])
+    dismissTooltip()
+  }, [transcript, streamingText, dismissTooltip])
 
   // ─── Auto-start when opened as overlay from chat ────────────────────────
   const pendingAutoStartRef = useRef(false)
@@ -960,6 +972,7 @@ export default function ConversationMode({
     setAssistantSpeaking(false)
     setTranscript([])
     setStreamingText(null)
+    dismissTooltip()
     setWarningSeconds(null)
     setErrorMsg(null)
     setUserSpeaking(false)
@@ -1154,6 +1167,12 @@ export default function ConversationMode({
               userAvatar={user?.avatar}
               userInitial={(user?.displayName || user?.username || '?')[0]}
               languageCode={targetLanguage}
+              onPointerUp={
+                entry.role === 'assistant'
+                  ? () =>
+                      handleTextSelection(entry.text, cefrLevel ?? undefined)
+                  : undefined
+              }
             />
           ))
         })()}
@@ -1253,6 +1272,23 @@ export default function ConversationMode({
         onClose={() => setReviewPromptOpen(false)}
         onSubmitted={() => setReviewPromptOpen(false)}
       />
+
+      {/* Word-save tooltip */}
+      {selectedWord && (
+        <WordTooltip
+          word={selectedWord}
+          pos={tooltipPos}
+          saveState={saveState}
+          onSave={() => handleSaveWord()}
+          onDismiss={dismissTooltip}
+          labels={{
+            saveWord: tCommon('saveWord'),
+            wordSaved: tCommon('wordSaved'),
+            wordAlreadySaved: tCommon('wordAlreadySaved'),
+            wordSaveError: tCommon('wordSaveError'),
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -1,123 +1,65 @@
 ---
-description: Use when updating the CHANGELOG, adding entries for new features, bug fixes, or changes, deciding what to document, or reviewing changelog format.
-applyTo: "**/CHANGELOG.md"
+description: "Rules for current unreleased work and immutable published history in CHANGELOG.md."
+applyTo: "CHANGELOG.md"
 ---
 
 # Changelog Guidelines
 
-## Format
+## Purpose
 
-The changelog follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+`CHANGELOG.md` is the only release-history document. Specifications describe current behavior and must
+not duplicate release narratives, phases, migration chronology, or validation logs.
 
-### Version header
+The changelog follows Keep a Changelog categories and Semantic Versioning.
 
-```
-## [MAJOR.MINOR.PATCH] - YYYY-MM-DD
-```
+## Headers
 
-- `MAJOR.MINOR.PATCH` follows SemVer
-- Date is ISO 8601 (e.g. `2026-04-21`)
-- Unreleased work goes under `## [Unreleased]` at the top
-
-### Sections (in order, omit empty ones)
-
-```
-### Added
-### Changed
-### Deprecated
-### Removed
-### Fixed
-### Security
-```
-
----
-
-## Entry Style
-
-- One entry per bullet (`-`), no sub-bullets
-- Start with a noun or past-tense verb describing what changed, not who changed it
-- Be specific: include the affected module, endpoint, component, or feature name where helpful
-- Do not mention PR numbers, commit hashes, or author names
-- Keep entries concise — one sentence max
-- Group related entries under the same section, not by file or layer
-
-**Good:**
-
-```
-- Flashcard SM-2 review endpoint with quality score 0–5
-- SSE streaming chat with progress-aware tutor system prompt
-- Admin panel with user CRUD and single-use invite links
-```
-
-**Bad:**
-
-```
-- Fixed a bug
-- Updated some files
-- Refactored chat module (see PR #42)
-```
-
----
-
-## What to Document
-
-### Always document
-
-- New user-facing features or UI changes
-- New backend API endpoints or new frontend routes
-- New database models or migrations
-- New Docker Compose services or infrastructure changes
-- Behaviour changes that affect the user experience
-- Bug fixes visible to the user
-- Security fixes
-- Breaking changes to internal contracts (LLM prompts, API schemas, auth flow)
-- New LLM provider support or config changes
-
-### Do not document
-
-- Internal refactors with no behaviour change (e.g. extracting a private function)
-- Test additions or changes — unless fixing a previously untested bug
-- Lint/format-only changes (ruff, black, eslint, prettier)
-- Changes to `.gitignore`, CI scripts, or dev tooling (unless they affect contributors)
-- Documentation-only changes (README, instruction files, AGENTS.md)
-
----
-
-## When to Update
-
-Update `CHANGELOG.md` when:
-
-- A feature is fully implemented and tested
-- A bug fix is confirmed working
-- A breaking change is introduced
-
-Do not update the changelog speculatively or mid-implementation.
-
----
-
-## Unreleased Section
-
-Use `## [Unreleased]` for changes not yet assigned to a build number:
+The repository currently assigns the next version before release:
 
 ```markdown
-## [Unreleased]
-
-### Added
-
-- ...
-
-### Fixed
-
-- ...
+## [X.Y.Z] - Unreleased
 ```
 
-When a build is released, replace `[Unreleased]` with the version + date.
+At publication, replace `Unreleased` with an ISO 8601 date:
 
----
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+```
 
-## Rules
+Only one top unreleased section should exist. Published versions follow in descending order.
 
-- Never delete or rewrite existing entries — only append new ones
-- Never group multiple distinct changes into a single bullet
-- The most recent version always appears at the top
-- Keep the introductory paragraph (Keep a Changelog + SemVer links) unchanged
+## Sections
+
+Use these headings in order and omit empty sections:
+
+- `Added`
+- `Changed`
+- `Deprecated`
+- `Removed`
+- `Fixed`
+- `Security`
+
+## Entry style
+
+- Use one concise bullet per independently meaningful change.
+- Describe observable behavior, contract, migration, infrastructure, or contributor workflow.
+- Name the affected feature or interface when useful.
+- Do not include authors, commit hashes, PR numbers, validation results, test counts, coverage, or
+  session notes.
+- Group by change category, not implementation file or development phase.
+- Document the corrected behavior, not the fact that a test was added.
+
+## What belongs
+
+Record user-visible features/fixes, endpoint/schema changes, migrations, security fixes, provider or
+configuration changes, infrastructure changes, and contributor-facing workflow changes.
+
+Do not record internal refactors, formatting, routine tests, or documentation-only synchronization
+unless they materially change how users or contributors interact with the project.
+
+## Immutability
+
+The current unreleased section may be reorganized, corrected, or split before publication. Do not
+delete or rewrite entries under published versions except for an explicitly approved factual
+correction. Preserve historical references to files, phases, or architecture names that were accurate
+for that release even if those items no longer exist.

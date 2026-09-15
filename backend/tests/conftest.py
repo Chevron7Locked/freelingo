@@ -1,4 +1,5 @@
 import os
+import re
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-ci-32b"
@@ -20,6 +21,14 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
     cursor.close()
+    # SQLite lacks PostgreSQL's regexp_replace; exercise the same SQL expression.
+    dbapi_connection.create_function(
+        "regexp_replace",
+        4,
+        lambda value, pattern, replacement, flags: re.sub(
+            pattern, replacement, value, count=0 if "g" in flags else 1
+        ),
+    )
 
 
 @pytest.fixture(scope="session")

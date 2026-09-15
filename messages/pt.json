@@ -83,6 +83,7 @@
     "resendVerification": "Reenviar e-mail de verificação",
     "saveWord": "Guardar",
     "wordSaved": "Guardado",
+    "wordAlreadySaved": "Já guardado",
     "wordSaveError": "Ocorreu um problema",
     "selectWordHint": "Seleciona uma palavra para a guardar no teu vocabulário",
     "noActivePlan": "Nenhum plano de estudo ativo encontrado",
@@ -649,6 +650,7 @@
     "correct": "Correto",
     "incorrect": "Incorreto",
     "feedback": "Feedback",
+    "corrections": "Correções",
     "completeLesson": "Concluir aula",
     "completing": "Concluindo...",
     "relatedGrammar": "Gramática relacionada",
@@ -1461,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Novidades",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Entendido",
     "entry1": {
       "label": "Um estilo mais nosso",

@@ -1,159 +1,94 @@
 ---
-description: "What's New modal specification for FreeLingo: version-aware changelog overlay shown once per version on the dashboard, following the same pattern as OnboardingTour."
-applyTo: "frontend/src/**"
+description: "Current client-side What's New modal, version key, tour priority, dynamic localized entries, layout, and update policy."
+applyTo: "frontend/src/components/whats-new/WhatsNew.tsx, frontend/src/app/(app)/dashboard/page.tsx, messages/*.json"
 ---
 
-# What's New modal
+# What's New
 
-## Objective
+## Purpose
 
-Show users a brief summary of what changed in the current version every time a new version is deployed. The modal appears automatically on the dashboard on the user's first visit after an update, then never again until the next version is released. No backend involvement — entirely client-side using localStorage, mirroring the OnboardingTour pattern.
+What's New is a client-side dashboard announcement shown once per browser/origin for a configured
+content version. It has no backend or account-persisted state and is independent from the canonical
+application version unless intentionally synchronized.
 
----
+## Visibility
 
-## Behaviour
+`WhatsNew.tsx` derives:
 
-- **User visits dashboard and has never seen the current version's modal** — Modal appears automatically
-- **User dismisses the modal (button or backdrop click)** — `localStorage` key set; modal never appears again for this version
-- **New version is deployed** — Storage key changes → modal reappears for all users on next dashboard visit
-- **User logs out** — Storage key is **not** cleared (unlike the tour) — no need to show it again on re-login within the same version
-
-The key difference from OnboardingTour: the tour clears on logout (new users must see it); the What's New modal does not — a returning user who already saw v1.5.0 notes should not see them again after logging out and back in.
-
----
-
-## localStorage key
-
-```
-fl_whats_new_seen_<version>
+```text
+fl_whats_new_seen_<WHATS_NEW_VERSION>
 ```
 
-Example for v1.5.0:
+On mount it opens only when `fl_tour_done` exists and the current What's New key does not. Dismissal by
+button or backdrop writes the key and hides the modal. Logout does not clear What's New keys, while it
+can clear onboarding-tour state.
 
-```
-fl_whats_new_seen_v1.5.0
-```
+Consequences:
 
-The version string is defined as a constant inside the component:
+- a browser that has not completed the onboarding tour sees the tour, not What's New;
+- a browser with the tour completed and an unseen content version sees What's New;
+- another browser or cleared local storage can show it again for the same account;
+- changing `WHATS_NEW_VERSION` makes the content eligible to appear again.
 
-```ts
-const WHATS_NEW_VERSION = "v1.5.0";
-const STORAGE_KEY = `fl_whats_new_seen_${WHATS_NEW_VERSION}`;
-```
+Do not claim that every existing user sees it: visibility is browser-local and requires completed-tour
+state.
 
-To ship a new release: update `WHATS_NEW_VERSION` and the matching `whatsNew.version` label in all ten translation files. Update the entries only when explicitly approved; a version-only bump preserves the existing entries.
+## Component and layout
 
----
+`WhatsNew` is rendered after `OnboardingTour` on Dashboard and returns no DOM when hidden.
 
-## Component
+- Full-screen fixed blurred backdrop; backdrop click dismisses.
+- Centered `max-w-md` card using `fl-*` surface and border tokens.
+- Header illustration `/logo_update.png` appears on the left; title/version text appears on the right.
+- Version text uses `font-code`.
+- Entries use `CircleDot`, `text-sm` labels/descriptions, and theme tokens.
+- Entry area is scrollable with a bounded viewport height.
+- Footer contains one primary dismiss action.
+- Decorative imagery has empty alt text.
 
-**File:** `frontend/src/components/whats-new/WhatsNew.tsx`
+## Localized data
 
-`'use client'` component. Rendered unconditionally in `dashboard/page.tsx` immediately after `<OnboardingTour />`. Returns `null` when not visible — zero DOM output.
-
-### Priority with OnboardingTour
-
-Both components are rendered in the DOM at the same time. The tour takes visual priority: if `fl_tour_done` is absent (new user), the tour is visible and the What's New modal should not compete. The What's New component must check for the tour key and skip rendering if the tour is active:
-
-```ts
-useEffect(() => {
-  const tourDone = localStorage.getItem("fl_tour_done");
-  const seen = localStorage.getItem(STORAGE_KEY);
-  if (tourDone && !seen) {
-    setVisible(true);
-  }
-}, []);
-```
-
-This ensures:
-
-- New user → sees tour only
-- Returning user on new version → sees What's New only
-- Returning user on same version → sees neither
-
----
-
-## Modal structure
-
-Single-panel layout — no step pagination. All entries for the version are shown in one scrollable list.
-
-```
-┌─────────────────────────────────────────┐
-│  WHAT'S NEW — v1.5.0          [Lingu]   │
-├─────────────────────────────────────────┤
-│                                         │
-│  ◎  FEATURE LABEL                       │
-│     Short description of the feature.   │
-│                                         │
-│  ▣  ANOTHER FEATURE                     │
-│     Short description.                  │
-│                                         │
-│  △  IMPROVEMENT                         │
-│     Short description.                  │
-│                                         │
-├─────────────────────────────────────────┤
-│                        [ Got it → ]     │
-└─────────────────────────────────────────┘
-```
-
-### Layout details
-
-- **Backdrop**: full-screen fixed overlay (`z-50`), semi-transparent with `backdrop-blur-sm`. Clicking it dismisses the modal.
-- **Modal card**: centered, `max-w-md`, same border/surface tokens as the tour (`border-fl-border bg-fl-surface`).
-- **Header**: the title uses Geist Sans with `tracking-widest uppercase text-fl-muted-2`; the version marker uses Geist Mono through `font-code`.
-- **Header illustration**: title and version sit on the left; transparent `/logo_update.png` shows Lingu on the right at a fixed 85 × 85px using `next/image`, replacing the sparkle icon. The decorative image has empty alt text and stays inside the card without a background or frame. Existing modal styling, entries, and dismissal behavior are preserved.
-- **Entry list**: each entry has a `CircleDot` icon, a 12px semibold sentence-case label in `text-fl-fg`, and a 14px Geist Sans description in `text-fl-muted-1` with relaxed line spacing. Rich-text emphasis uses `text-fl-fg`.
-- **Divider** between header, list, and footer using `border-fl-border`.
-- **Footer**: single `Got it →` button (filled `bg-fl-accent`) right-aligned.
-- **Max height**: `max-h-[50vh] overflow-y-auto` on the entries container to handle long lists gracefully.
-
----
-
-## Translations
-
-Namespace: `whatsNew` in all `messages/*.json` files.
-
-**Rule: all 10 locale files must always be updated in sync.** The supported locales are: `en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`. No locale may be left behind. For an explicitly requested version-only bump, preserve all existing entries in every locale and update only the version labels.
-
-Structure for each version's entries:
+Every root `messages/*.json` catalog contains the `whatsNew` namespace:
 
 ```json
-"whatsNew": {
-  "title": "What's New",
-  "version": "v1.5.0",
-  "cta": "Got it",
-  "entry1": {
-    "label": "Feature label",
-    "desc": "Short description of the feature or improvement."
-  },
-  "entry2": {
-    "label": "Another feature",
-    "desc": "Short description."
+{
+  "whatsNew": {
+    "title": "What's New",
+    "version": "vX.Y.Z",
+    "cta": "Got it",
+    "entry1": {
+      "label": "Feature label",
+      "desc": "Short description."
+    }
   }
 }
 ```
 
-The number of entries is variable per version. The component reads entries dynamically using `useMessages()` from `next-intl` — it inspects the raw `whatsNew` namespace object and filters keys matching `/^entry\d+$/`, sorted numerically. **Do not use `useTranslations` in a try/catch loop to detect missing keys** — `next-intl` does not throw on missing keys; it returns the key path as a string, which would cause an infinite loop.
+The component reads raw messages with `useMessages()`, selects keys matching `entryN`, and sorts them
+numerically. It must not probe unknown translation keys with a `useTranslations` try/catch loop because
+missing keys return paths rather than throwing.
 
-**When shipping approved new content: replace the existing `entry*` keys with the approved entries rather than accumulating old entries.** If the maintainer requests only a version bump, leave every entry unchanged. In either case, update the `version` key to match `WHATS_NEW_VERSION` in the component.
+All ten locale catalogs must contain the same entry keys and matching version label. Entry count is
+variable. New content replaces old `entry*` keys rather than accumulating release history.
 
-For v1.9.5, all ten locales preserve the four existing entries exactly: the visual-identity highlight as `entry1`, the reading-comfort and clearer-translations/website/email highlights as `entry2` and `entry3`, and the general bug-fix entry as `entry4`. `WHATS_NEW_VERSION` and every localized version label are `v1.9.5`. The existing dynamic renderer is unchanged. The dismissal key is now `fl_whats_new_seen_v1.9.5`, so a prior dismissal of an older version does not suppress this modal once onboarding is complete.
+## Version semantics
 
----
+`WHATS_NEW_VERSION` and every localized `whatsNew.version` value must match. This version identifies
+the displayed content and local-storage key; it is not automatically the canonical project version.
 
-## Files to create / modify
+Changing only the version while preserving entries intentionally re-announces the existing content.
+Do this only with explicit maintainer approval. When announcing a release's actual changes, draft new
+user-facing entries from its changelog, obtain approval, replace entries in every locale, and update the
+component and localized version together.
 
-- `frontend/src/components/whats-new/WhatsNew.tsx` — Create — the modal component
-- `frontend/src/app/(app)/dashboard/page.tsx` — Modify — import and render `<WhatsNew />` after `<OnboardingTour />`
-- `messages/en.json` (and all locale files) — Modify — add `whatsNew` namespace with current version entries
+## Update workflow
 
----
+1. Decide whether the content is new or an intentional repeat.
+2. Draft concise nontechnical entries from approved user-visible changes.
+3. Obtain explicit approval for entry text and version behavior.
+4. Replace/synchronize `entry*` keys across all locale catalogs.
+5. Update `WHATS_NEW_VERSION` and all localized version labels together.
+6. Keep Dashboard placement, tour priority, and dismissal semantics unchanged unless the feature itself
+   is being redesigned.
 
-## Maintenance workflow (per release)
-
-1. Bump `WHATS_NEW_VERSION` constant in `WhatsNew.tsx` to the new version string.
-2. Update the `version` key across **all 10 locale files** (`en`, `es`, `de`, `fr`, `it`, `nl`, `pl`, `pt`, `ro`, `ru`) to match the component constant.
-3. If new content is approved, replace the `entry*` content and remove obsolete entries. If only the version number is being bumped, preserve all entries exactly.
-4. Deploy. All existing users will see the modal on their next dashboard visit.
-
-No database migration, no backend change, no API endpoint needed.
+No database migration, API endpoint, or backend change is required for ordinary content updates.

@@ -1,348 +1,124 @@
 ---
-description: "Backend architecture reference for FreeLingo: directory structure, database models, service layer, routers, schemas, core modules, code standards, environment variables, and test configuration."
+description: "Current FastAPI backend architecture, layer responsibilities, infrastructure lifecycle, ownership, and code conventions."
 applyTo: "backend/**"
 ---
 
-# Architecture — Backend
+# Backend Architecture
 
-> The general architecture overview (repository structure, data flows, auth design) lives in [architecture.instructions.md](architecture.instructions.md). Frontend-specific architecture lives in [architecture-frontend.instructions.md](architecture-frontend.instructions.md).
->
-> API endpoints are documented separately in [api-endpoints.instructions.md](api-endpoints.instructions.md).
-> Database model details are in [database-models.instructions.md](database-models.instructions.md).
-> Service details are in [services.instructions.md](services.instructions.md).
+## Role
 
-## Directory structure
+The backend is the authoritative boundary for business rules, authorization, persistence, quotas, and
+external providers. Routers expose transport contracts; services implement reusable behavior; models
+and schemas define persistence and data boundaries.
 
-```
+## Layout
+
+```text
 backend/
 ├── app/
-│   ├── core/                    # Config, DB engine, security, deps, rate limiter
-│   │   ├── __init__.py
-│   │   ├── config.py            # Pydantic Settings — all env vars defined here
-│   │   ├── database.py          # SQLAlchemy async engine + session factory
-│   │   ├── deps.py              # FastAPI dependencies: get_redis, get_current_user, maintenance/subscription guards
-│   │   ├── security.py          # JWT encode/decode, password hashing
-│   │   ├── app_logger.py        # Structured logging (structlog)
-│   │   └── limiter.py           # slowapi rate limiter setup
-│   │
-│   ├── models/                  # SQLAlchemy 2.0 ORM models (17 files, 23 model classes)
-│   │   ├── __init__.py
-│   │   ├── user.py              # User, UserPreferences, user quotas, avatar
-│   │   ├── user_language.py     # UserLanguage (phase 10: multi-language learning)
-│   │   ├── progress.py          # Progress (daily XP, streak, skills JSON)
-│   │   ├── study_plan.py        # StudyPlan, DayPlan (week-by-week JSON)
-│   │   ├── lesson.py            # Lesson + Exercise
-│   │   ├── competency.py        # UserCompetency (curriculum tracking)
-│   │   ├── flashcard.py         # Flashcard (SM-2 algorithm)
-│   │   ├── conversation.py      # Conversation (voice sessions)
-│   │   ├── dashboard_banner.py  # Singleton multilingual dashboard announcement
-│   │   ├── chat_history.py      # ChatHistory (text chat messages)
-│   │   ├── listening.py         # ListeningExercise, ListeningAttempt
-│   │   ├── reading.py           # ReadingExercise, ReadingAttempt
-│   │   ├── feedback.py          # FeedbackEntry, FeedbackVote, FeedbackComment, FeedbackReadState
-│   │   ├── review.py            # Review (one moderated product review per user)
-│   │   ├── resource_native_help.py # ResourceNativeHelp (global native-help cache for static resources)
-│   │   ├── memory.py            # Memory (persistent LLM context)
-│   │   └── llm_usage.py         # LLMUsage (token audit trail)
-│   │
-│   ├── schemas/                 # Pydantic v2 request/response schemas (20 modules)
-│   │   ├── __init__.py
-│   │   ├── auth.py
-│   │   ├── admin.py
-│   │   ├── assessment.py
-│   │   ├── chat.py
-│   │   ├── dashboard_banner.py  # Translation, admin update/public response, and dismissal contracts
-│   │   ├── feedback.py
-│   │   ├── flashcards.py
-│   │   ├── language.py
-│   │   ├── lessons.py
-│   │   ├── listening.py
-│   │   ├── progress.py
-│   │   ├── reading.py
-│   │   ├── review.py
-│   │   ├── study_plan.py
-│   │   └── tts_stt.py
-│   │   ├── vocabulary.py
-│   │   ├── curriculum.py
-│   │   └── phrasebook.py
-│   │
-│   ├── routers/                 # FastAPI router modules (28; conversation also exposes the voice WebSocket)
-│   │   ├── __init__.py
-│   │   ├── admin.py             # Admin overview metrics, review signals, user management, filtered lists, maintenance toggle
-│   │   ├── admin_dashboard_banner.py # Admin read/translate/update for the singleton announcement
-│   │   ├── assessment.py        # Level assessment quiz + completion + static bank
-│   │   ├── auth.py              # Register, login, refresh, logout, avatar upload/private retrieval/delete, verify-email, reset-password
-│   │   ├── billing.py           # Stripe checkout, customer portal, webhook with current-subscription matching
-│   │   ├── chat.py              # SSE chat streaming
-│   │   ├── config.py            # Public config endpoint (maintenance mode, features, active dashboard banner)
-│   │   ├── contact.py           # Contact form submission
-│   │   ├── conversation.py      # WebSocket voice conversation
-│   │   ├── curriculum.py        # Curriculum data (now auth-required)
-│   │   ├── dashboard_banner.py  # Authenticated account-persistent banner dismissal
-│   │   ├── feedback.py          # Feedback CRUD, search, unread counters, author roles, admin status management
-│   │   ├── flashcards.py        # Spaced-repetition flashcard CRUD + review
-│   │   ├── freemium.py          # Freemium quota status and trial state
-│   │   ├── grammar.py            # Grammar reference topics by language and CEFR level
-│   │   ├── health.py            # Public minimal liveness check + private admin diagnostics
-│   │   ├── languages.py         # Available target languages
-│   │   ├── lessons.py           # Lesson content + exercise submission
-│   │   ├── listening.py         # AI-generated listening exercises
-│   │   ├── memories.py          # LLM memory management
-│   │   ├── phrasebook.py        # Phrasebook categories and phrases
-│   │   ├── progress.py          # User progress, XP, streak, skills, vocabulary summary
-│   │   ├── reading.py           # AI-generated reading exercises
-│   │   ├── reviews.py           # User reviews: create/state, public list, admin moderation
-│   │   ├── stt.py               # Speech-to-text proxy
-│   │   ├── study_plan.py        # Study plan generation + current/pending/generated lesson metadata
-│   │   ├── tts.py               # Text-to-speech proxy
-│   │   └── vocabulary.py        # Static vocabulary data (per language + per level)
-│   │
-│   ├── services/                # Business logic + external service clients (21 modules + prompts package)
-│   │   ├── __init__.py
-│   │   ├── assessment.py        # Adaptive quiz logic, CEFR level estimation
-│   │   ├── assessment_voice_trial.py # One-time post-assessment voice demo token service
-│   │   ├── conversation_pipeline.py  # WebSocket voice orchestrator: STT → LLM → TTS
-│   │   ├── email_service.py     # SMTP email (verification, password reset, contact, admin notifications)
-│   │   ├── flashcard_sm2.py     # SM-2 spaced repetition algorithm
-│   │   ├── freemium_service.py  # Freemium quota checking, usage recording, trial state, status response builder
-│   │   ├── language_helpers.py  # Language code parsing, script metadata, prompt length guidance, voice/engine selection
-│   │   ├── lesson_generator.py  # LLM-powered lesson content generation
-│   │   ├── listening_service.py # AI listening exercise generation + caching
-│   │   ├── llm_adapter.py       # Multi-provider LLM interface (Ollama, OpenAI, Anthropic, DeepSeek)
-│   │   ├── memory_service.py    # Autonomous LLM memory management
-│   │   ├── progress_service.py  # XP calculation, streak logic, skill scoring
-│   │   ├── prompts/             # Centralized LLM prompt templates and builders
-│   │   ├── quota_service.py     # Token quota tracking and enforcement
-│   │   ├── reading_service.py   # AI reading exercise generation + caching
-│   │   ├── resource_native_help.py # Static-resource native-help cache helpers
-│   │   ├── review_service.py    # User review creation, duplicate guard, approval, deletion
-│   │   ├── stt_service.py       # Speech-to-text abstraction (local Whisper / OpenAI)
-│   │   ├── study_plan_generator.py  # Deterministic unit distribution from curriculum
-│   │   ├── subscription_service.py  # Stripe subscription management
-│   │   ├── tts_service.py       # Text-to-speech abstraction (local Kokoro / OpenAI)
-│   │   └── user_language_service.py # Multi-language study plan management (phase 10)
-│   │
-│   └── data/                    # Static curriculum, assessment, vocabulary, and phrasebook content (9 language modules)
-│       ├── __init__.py
-│       ├── _types.py             # Shared types (CEFRLevel, CurriculumUnit, AssessmentQuestion, VocabularyEntry, VocabularySet, PhrasebookEntry, PhrasebookCategory)
-│       ├── curriculum.py         # Language-aware curriculum dispatcher
-│       ├── assessment_bank.py    # Language-aware assessment bank dispatcher
-│       ├── vocabulary.py         # Language-aware vocabulary dispatcher
-│       ├── en_GB/                # British English — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── en_US/                # American English — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── de/                   # German — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── es/                   # Spanish — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── fr/                   # French — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── it/                   # Italian — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── ja/                   # Japanese — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── ko/                   # Korean — curriculum, assessment bank, vocabulary, phrasebook
-│       ├── zh/                   # Mainland Chinese — curriculum, assessment bank, vocabulary, phrasebook
-│       └── pt/                   # Portuguese — curriculum, assessment bank, vocabulary, phrasebook
-│
-├── alembic/
-│   └── versions/                # DB migrations (50 migrations)
-│
-├── requirements.txt             # Exact direct dependencies; loads constraints.txt
-├── constraints.txt              # Exact indirect dependency versions
-└── tests/                       # pytest suite (45 test files, 1019 tests)
+│   ├── core/       # configuration, database, auth dependencies, logging, rate limiting
+│   ├── models/     # SQLAlchemy persistence models
+│   ├── schemas/    # Pydantic HTTP and structured-output contracts
+│   ├── routers/    # REST and WebSocket transport
+│   ├── services/   # business logic and external-provider adapters
+│   └── data/       # canonical curricula and learning resources
+├── alembic/        # schema migrations
+└── tests/          # backend test suite
 ```
 
-## Runtime and dependency installation
+`app/main.py` creates the FastAPI application, registers routers and exception handlers, configures
+CORS and security headers, and manages database/Redis startup and shutdown.
 
-- The backend uses Python 3.14. Docker, backend PR checks, and pre-push install pip 26.2.1 before installing application dependencies.
-- `requirements.txt` pins direct dependencies with `==` and loads `constraints.txt` through `-c constraints.txt`. The constraints pin indirect versions without making them additional direct dependencies.
-- Install through `python -m pip install -r requirements.txt` from the backend directory, or use the corresponding path from the repository root. Update direct pins and indirect constraints together when changing dependencies.
-- CI includes both files in its pip cache key. Test dependencies, including `pytest-cov`, come from the same pinned requirements rather than a separate unbounded installation.
-- `scripts/pre-push.sh` activates the project virtual environment and synchronizes pip and backend dependencies before formatting and testing. Preserve compatible deployed versions when aligning environments, and review dependency compatibility before changing pins.
-
-## Database models
-
-The application uses 23 SQLAlchemy ORM model classes organized by domain:
-
-- **Core**: User (authentication, preferences, quotas, Stripe state, post-assessment voice demo state, freemium trial state, dashboard-banner dismissal revision), Progress (daily XP/streak/skills), DashboardBanner (global multilingual announcement singleton)
-- **Study plan**: StudyPlan, Lesson, Exercise, UserCompetency (curriculum tracking)
-- **Spaced repetition**: Flashcard (SM-2 algorithm)
-- **Conversations**: Conversation, ChatHistory (text and voice transcripts)
-- **AI-generated/static support content**: ListeningExercise, ListeningAttempt, ReadingExercise, ReadingAttempt (shared exercise pools), ResourceNativeHelp (global native-language cache for static resources)
-- **Community**: FeedbackEntry, FeedbackVote, FeedbackComment (feature requests and bug reports), Review (moderated product reviews)
-- **LLM**: Memory (global per-user persistent context with nullable study-plan provenance), LLMUsage (token audit trail)
-- **Multi-language**: UserLanguage (phase 10 — enables learning multiple target languages per user)
-
-All models use SQLAlchemy 2.0 declarative style with `Mapped[T]` type annotations. PostgreSQL JSON columns store structured content for lessons, plans, exercises, and skill scores.
-
-Feedback entry and comment response schemas embed `FeedbackAuthor` with `id`, `username`, `display_name`, and `role`. The router resolves the current user role while building both individual and batched responses, allowing the frontend to distinguish administrator-authored community content without changing the feedback database models.
-
-`UserUpdateRequest` validates `native_language` against the same supported code set as registration. The frontend exposes a selector, while the backend validation keeps direct or modified API requests from persisting unknown language codes that would later enter native-language prompts and memory-tool descriptions.
-
-For complete schema details, relationships, constraints, and business rules, see [database-models.instructions.md](database-models.instructions.md).
-
----
-
-## Service layer
-
-All external dependencies are accessed through the service layer. The frontend never calls Ollama, Kokoro, or Whisper directly — the backend is the single gateway.
-
-The application uses 21 services plus a centralized `services/prompts/` package organized by domain:
-
-- **LLM & AI**: LLM Adapter (multi-provider), Assessment, Study Plan Generator, Lesson Generator, Flashcard SM-2
-- **Media**: TTS Service, STT Service, Conversation Pipeline (WebSocket voice orchestrator)
-- **Content**: Listening Service, Reading Service (AI-generated exercises with caching; generation responses validated with Pydantic `structured_output()` schemas), Resource Native Help (global cache for static-resource native-language helpers)
-- **User**: Progress Service, Memory Service, Quota Service, Subscription Service, Freemium Service, User Language Service
-- **Community**: Review Service
-- **Infrastructure**: Language Helpers, Email Service
-- **Prompt architecture**: prompt templates, shared blocks, CJK-ready language overlays, and builders live in `services/prompts/`; see [prompts.instructions.md](prompts.instructions.md)
-
-Key architectural decisions:
-
-- **STT language context** is plan-authoritative for pronunciation exercises and flashcard speaking mode. `POST /api/stt` verifies the submitted `study_plan_id` against the authenticated user, resolves `StudyPlan.target_language`, normalizes it with `get_iso639`, and passes the ISO code through a required keyword-only service argument. Conversation STT follows the same explicit-language contract, so missing caller context cannot silently fall back to English. Flashcard generation takes its target language exclusively from the active persisted plan before saving cards under that plan, and review progress follows each card's own persisted plan even after a language switch.
-- **LLM Adapter** is a singleton with provider-agnostic interface (Ollama, OpenAI, Anthropic, DeepSeek). Streaming native tools normalize OpenAI-compatible and Anthropic events, forward visible text progressively while filtering tool metadata, execute at most one call, and continue once with provider-native tool-result messages. OpenAI GPT-5.6 Chat Completions set `reasoning_effort="none"` only for tool rounds. Tool-free retries receive a clean fallback prompt; explicit incompatibilities become session-local unavailable capability for voice, while transient failures are probed again. Known incompatibility or continuation failure after visible output resets the consumer before retrying the complete turn, and empty fallbacks fail instead of producing a successful blank response. Committed tool results are exposed immediately, while executor failures remain internal failed tool results.
-- **Memory Service** owns strict native `save_user_memory` execution, escaped global context, exact per-user deduplication, a 150-item cap, manual creation, and owner-scoped management. Saves, individual deletion, and clear-all serialize on the same user-row lock. `study_plan_id` records nullable provenance only.
-- **Voice memory capability** is session-local state on `ConversationPipeline`. Once a model explicitly rejects tools, later turns in the same WebSocket session omit them; a new voice session probes capability again.
-- **Study Plan Generator** and **Lesson Generator** are deterministic within curriculum constraints; lesson generation can include native-language support at lesson level, per-exercise explanation level, and per-exercise pre-answer hint level without adding separate exercise-table columns, enriched lesson vocabulary with native-language translation/example notes inside lesson JSON, and missing exercise native explanations or hints can be generated on demand and cached in lesson JSON
-- **TTS/STT services** abstract local (Kokoro/Whisper) and cloud (OpenAI) providers behind common interfaces
-- **Conversation Pipeline** orchestrates real-time voice: cancellable greeting, STT → full LLM response → sentence-level TTS chunks, serialized WebSocket sends, empty-STT guard, and backend barge-in support with frontend automatic interruption disabled
-- **Language Helpers** centralize target-language display names, ISO codes, script metadata, romanization metadata, word-spacing metadata, and reading/listening length guidance. Japanese (`ja-JP`), Korean (`ko-KR`), and Mainland Chinese (`zh-CN`) are enabled in backend language allow-lists and static content dispatchers.
-- **Dashboard banner translation** remains router-level orchestration rather than a dedicated service: the admin router uses the existing LLM Adapter's structured output to generate all ten UI-locale translations, preserves the validated source text, and leaves every translation editable before the singleton is saved.
-
-For complete service details, APIs, and implementation notes, see [services.instructions.md](services.instructions.md).
-
----
-
-## Code standards (Python 3.14)
-
-- ruff — Linting + isort + pyupgrade (rules: E, W, F, I, UP, B, S, ANN)
-- black — Code formatting (line-length 100)
-
-- ANN101 (missing self type annotation) ignored globally.
-- S and ANN rules disabled in `tests/` directory.
-
----
-
-## Tests
-
-Testing infrastructure and strategy are documented in [testing.instructions.md](testing.instructions.md).
-
-**Summary:**
-
-- **Framework**: pytest + pytest-asyncio + httpx AsyncClient
-- **Test files**: 45 (plus conftest.py for shared fixtures)
-- **Tests**: 1019
-- **Coverage**: 85.56% last measured (target: ≥70%)
-- **Key fixtures**: async database session, test client with auth headers, Redis mock, user_language fixture
-
----
-
-## Environment variables
-
-All configuration is environment-driven. Variables are defined in `app/core/config.py` (Pydantic Settings). 63 variables total — the complete list below.
+## Layers
 
 ### Core
 
-- DATABASE_URL — Default: —; Purpose: asyncpg connection string
-- REDIS_URL — Default: redis://localhost:6379/0; Purpose: Redis connection string
-- SECRET_KEY — Default: —; Purpose: JWT signing key (HS256)
-- ACCESS_TOKEN_EXPIRE_MINUTES — Default: 15; Purpose: JWT lifetime
-- REFRESH_TOKEN_EXPIRE_DAYS — Default: 30; Purpose: Refresh token TTL
-- CORS_ORIGINS — Default: ["http://localhost:3000"]; Purpose: Allowed CORS origins (JSON array)
-- COOKIE_SECURE — Default: false; Purpose: Set `Secure` flag on cookies
-- LOG_LEVEL — Default: INFO; Purpose: Application log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
+`app/core/config.py` is the authoritative `Settings` schema. `.env.example` documents deployable
+values, while Docker determines which values are passed into containers.
 
-### Default usage quotas
+Database sessions come from the async SQLAlchemy engine. Redis is optional at process startup but
+features that require Redis expose their own degraded or unavailable behavior.
 
-- DEFAULT_CONVERSATION_MAX_DURATION — Default: 1800; Purpose: default max voice session duration in seconds for new users; supported values: `900`, `1800`
-- DEFAULT_CONVERSATION_INACTIVITY_TIMEOUT — Default: 180; Purpose: default inactivity disconnect timeout in seconds for new users; supported values: `60`, `180`, `300`
-- DEFAULT_CONVERSATION_WEEKLY_SESSIONS — Default: 0; Purpose: default weekly voice session quota; `0` means unlimited
-- DEFAULT_CONVERSATION_DAILY_MINUTES — Default: 30; Purpose: default daily voice conversation minutes
-- DEFAULT_CONVERSATION_WEEKLY_MINUTES — Default: 90; Purpose: default weekly voice conversation minutes
-- DEFAULT_MONTHLY_TOKENS_LIMIT — Default: 1000000; Purpose: default monthly LLM token quota; `0` means unlimited
-- ASSESSMENT_VOICE_TRIAL_DURATION_SECONDS — Default: 300; Purpose: post-assessment voice demo duration in seconds
+Authentication dependencies decode access tokens, load active users, enforce roles and subscription
+or maintenance policy, and resolve active plans. Authorization-sensitive routers must not trust IDs,
+language codes, or access flags supplied by the frontend without verifying persisted ownership.
 
-### Auth & registration
+`app_logger.py` is a small wrapper around Python standard logging; it is not a structlog integration.
 
-- ALLOW_REGISTRATION — Default: true; Purpose: Enables/disables public signups
-- FIRST_USER_IS_ADMIN — Default: true; Purpose: Auto-admin for first user
-- BLOCKED_EMAIL_DOMAINS — Default: []; Purpose: JSON array of blocked email domains (disposable/temporary providers)
+### Models
 
-### LLM
+SQLAlchemy models define durable state and relationships. Domain ownership follows persisted foreign
+keys: plan-owned resources remain tied to their plan even when the user switches active language.
+Detailed columns, constraints, and deletion behavior live in `database-models.instructions.md`.
 
-- LLM_PROVIDER — Default: ollama; Purpose: `ollama` / `openai` / `anthropic` / `deepseek`
-- OLLAMA_BASE_URL — Default: http://host.docker.internal:11434; Purpose: Ollama API endpoint
-- OLLAMA_MODEL — Default: gemma4:e4b; Purpose: Model tag to use with Ollama
-- OPENAI_API_KEY — Default: ``; Purpose: OpenAI API key (also reused for TTS/STT when provider is `openai`)
-- OPENAI_MODEL — Default: gpt-4o-mini; Purpose: OpenAI chat model
-- ANTHROPIC_API_KEY — Default: ``; Purpose: Anthropic API key
-- ANTHROPIC_MODEL — Default: claude-3-5-haiku-latest; Purpose: Anthropic chat model
-- ANTHROPIC_MAX_TOKENS — Default: 8192; Purpose: Maximum Anthropic output tokens per request; increase or reduce only within the selected model's supported output limit
-- DEEPSEEK_API_KEY — Default: ``; Purpose: DeepSeek API key
-- DEEPSEEK_MODEL — Default: deepseek-chat; Purpose: DeepSeek chat model
+Alembic revisions are applied automatically when the production backend container starts. Creating
+and reviewing a new revision remains a separate deployment-maintainer operation.
 
-### TTS
+### Schemas
 
-- TTS_PROVIDER — Default: local; Purpose: `local` (Kokoro) or `openai`
-- TTS_BASE_URL — Default: http://kokoro:8880; Purpose: Kokoro-FastAPI endpoint (local provider)
-- TTS_VOICE — Default: af_heart; Purpose: Kokoro voice ID (local provider)
-- OPENAI_TTS_MODEL — Default: tts-1; Purpose: OpenAI TTS model (openai provider)
-- OPENAI_TTS_VOICE — Default: nova; Purpose: OpenAI TTS voice (openai provider)
-- OPENAI_TTS_SPEED — Default: 1.0; Purpose: OpenAI TTS playback speed (openai provider)
+Pydantic schemas validate HTTP inputs/outputs and selected LLM structured responses. ORM models must
+not be returned directly when a response schema defines a narrower public contract.
 
-### STT
+Structured-output validation does not apply to every LLM JSON call; the assessment service retains
+manual JSON parsing for free-write and level-test flows.
 
-- STT_PROVIDER — Default: local; Purpose: `local` (faster-whisper) or `openai`
-- STT_BASE_URL — Default: http://whisper:9000; Purpose: Whisper ASR endpoint (local provider)
-- OPENAI_STT_MODEL — Default: whisper-1; Purpose: OpenAI STT model (openai provider)
+### Routers
 
-> `STT_MODEL` and `STT_ENGINE` are Docker-level variables passed to the Whisper container — they are **not** consumed by the Python backend.
+Routers own transport concerns: authentication dependencies, path/query/body parsing, rate-limit
+decorators, HTTP status mapping, SSE framing, WebSocket lifecycle, and ownership lookup. They should
+delegate reusable business and provider behavior to services.
 
-### Stripe
+Every HTTP endpoint carries an explicit rate-limit decorator. The configured SlowAPI default does not
+replace that requirement under the current application integration.
 
-- STRIPE_ENABLED — Default: false; Purpose: Enable Stripe paywall; `false` = all active users have full access
-- STRIPE_SECRET_KEY — Default: ``; Purpose: Stripe secret key
-- STRIPE_WEBHOOK_SECRET — Default: ``; Purpose: Stripe webhook signing secret
-- STRIPE_PRICE_MONTHLY — Default: ``; Purpose: Stripe Price ID for monthly plan; required when `STRIPE_ENABLED=true`
-- STRIPE_PRICE_YEARLY — Default: ``; Purpose: Stripe Price ID for yearly plan; required when `STRIPE_ENABLED=true`
-- STRIPE_TRIAL_DAYS — Default: 7; Purpose: Free trial duration in days
-- STRIPE_BASE_URL — Default: http://localhost:3000; Purpose: Frontend base URL used in Stripe redirect URLs
+### Services
 
-The app does not create Stripe products or prices automatically; operators configure the Stripe Price IDs from the Stripe Dashboard.
+Services own reusable domain and provider behavior. The deterministic Study Plan Generator is separate
+from the LLM-backed Lesson Generator. The backend is the only gateway to LLM, TTS, STT, email, Stripe,
+Redis, and database operations exposed to the frontend.
 
-### Freemium
+Provider adapters normalize contracts and errors, but HTTP mapping remains feature-specific at router
+boundaries. Detailed interfaces live in `services.instructions.md` and the relevant domain specs.
 
-- FREEMIUM_CHAT_DAILY_MESSAGES — Default: 5; Purpose: daily AI chat messages for free-tier users. `0` = blocked.
-- FREEMIUM_LESSONS_DAILY — Default: 3; Purpose: daily lesson completions for free-tier users. `0` = blocked.
-- FREEMIUM_LISTENING_WEEKLY — Default: 3; Purpose: weekly listening exercises for free-tier users. `0` = blocked.
-- FREEMIUM_READING_WEEKLY — Default: 3; Purpose: weekly reading exercises for free-tier users. `0` = blocked.
-- FREEMIUM_VOICE_WEEKLY_MINUTES — Default: 5; Purpose: weekly voice conversation minutes for free-tier users. `0` = blocked.
-- FREEMIUM_TRIAL_ENABLED — Default: true; Purpose: enable 7-day no-card trial for new users
-- FREEMIUM_TRIAL_DAYS — Default: 7; Purpose: duration of freemium trial in days
+### Static learning data
 
-### Email
+`app/data/` contains the canonical curriculum, grammar, vocabulary, phrasebook, and assessment-bank
+packages for supported target languages. Dispatchers resolve canonical language variants and provide
+the fallback behavior documented in `target-language.instructions.md`.
 
-- EMAIL_ENABLED — Default: false; Purpose: Enable SMTP email (verification, password reset, contact form, admin notifications)
-- CONTACT_EMAIL — Default: ``; Purpose: Destination address for contact form submissions and admin notifications
-- SMTP_HOST — Default: localhost; Purpose: SMTP server hostname
-- SMTP_PORT — Default: 587; Purpose: SMTP server port
-- SMTP_USER — Default: ``; Purpose: SMTP username
-- SMTP_PASSWORD — Default: ``; Purpose: SMTP password
-- SMTP_FROM — Default: noreply@freelingo.app; Purpose: From address for outgoing emails
-- SMTP_TLS — Default: true; Purpose: Use STARTTLS
-- SMTP_SSL — Default: false; Purpose: Use implicit SSL (port 465)
-- APP_BASE_URL — Default: http://localhost:3000; Purpose: Public frontend URL (used in email links)
+The frontend consumes this content through authenticated backend APIs and must not duplicate it.
 
-### Other
+## Persistence and deletion
 
-- RATE_LIMIT_ENABLED — Default: true; Purpose: Enable slowapi rate limiting
-- AUDIO_STORAGE_PATH — Default: /data/audio; Purpose: Docker volume path for generated listening MP3 files
-- AVAILABLE_TARGET_LANGUAGES — Default: ["de-DE","en-GB","en-US","es-ES","fr-FR","it-IT","ja-JP","ko-KR","pt-PT","zh-CN"]; Purpose: Operator-configured BCP-47 target-language list; entries not present in backend `SUPPORTED_TARGET_LANGUAGES` are filtered out
+PostgreSQL stores account and learning data. Redis stores expiring operational data such as refresh
+tokens, invitations, rate-limit counters, quotas, and generation locks. Generated media and avatars
+use configured filesystem paths mounted by Docker.
 
-### Docker-level variables (not consumed by Python backend)
+Foreign-key `ondelete`, nullable provenance, and uniqueness constraints are part of the data contract.
+Deletion services must preserve global account state and remove only the language- or resource-owned
+state defined by those relationships.
 
-- POSTGRES_DB — Default: freelingo; Consumed by: PostgreSQL container + DATABASE_URL composition
-- POSTGRES_USER — Default: freelingo; Consumed by: PostgreSQL container + DATABASE_URL composition
-- POSTGRES_PASSWORD — Default: —; Consumed by: PostgreSQL container + DATABASE_URL composition
-- DATA_PATH — Default: /opt/docker/freelingo; Consumed by: Docker bind mounts for persistent data
-- REDIS_PASSWORD — Default: —; Consumed by: Redis container + REDIS_URL composition
-- STT_MODEL — Default: large-v3-turbo; Consumed by: Whisper Docker container (ASR_MODEL)
-- STT_ENGINE — Default: faster_whisper; Consumed by: Whisper Docker container (ASR_ENGINE)
-- UVICORN_WORKERS — Default: 4; Consumed by: Docker entrypoint command
+## Error boundaries
 
-For Docker configuration details, see [docker.instructions.md](docker.instructions.md).
+Backend features distinguish validation/ownership failures, provider unavailability, provider timeout,
+invalid provider output, quota/access denial, and background-generation failure. There is no universal
+HTTP status mapping for every LLM error; each router contract is documented in the API and LLM error
+specifications.
+
+## Python conventions
+
+- Python 3.14, asynchronous SQLAlchemy, and Pydantic v2.
+- Ruff selects `E`, `W`, `F`, `I`, `UP`, `B`, `S`, and `ANN` with project overrides in
+  `backend/pyproject.toml`.
+- Black line length is 100.
+- Tests disable security and annotation rules through per-file configuration.
+- Dependencies are pinned through `requirements.txt` and `constraints.txt`.
+
+## Related specifications
+
+- `architecture.instructions.md`: system boundaries and cross-system flows.
+- `database-models.instructions.md`: persistence contracts.
+- `services.instructions.md`: service interfaces and effects.
+- `api-endpoints.instructions.md`: transport contracts.
+- `docker.instructions.md`: container runtime and environment propagation.
+- Domain specs: detailed learning, language, speech, access, and community behavior.

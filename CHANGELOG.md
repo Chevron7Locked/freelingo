@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.10] - 2026-09-15
+
+### Added
+
+- **Selectable lesson and conversation vocabulary**: learners can save words from lesson exercise questions and completed tutor turns in voice transcripts, with a localized “Already saved” confirmation in all ten UI languages.
+- **Free-write corrections**: writing evaluations now persist structured corrections and display inline annotations plus a localized corrections list with explanations, including after reloads and in completed-lesson review.
+- **Partial-answer feedback**: free-write answers with corrections and a score between zero and one use an accessible partial-state icon and an amber border, while unavailable evaluations retain their existing fallback state.
+
+### Changed
+
+- Project specifications reorganized and aligned with the current implementation.
+- **Theme-aware correction colors**: inline annotations and correction lists share success/error tokens, and the partial-answer state uses a new `fl-warning` token with separate dark and light colors.
+- **Correction readability**: original and corrected learning text use 16px with language-specific fonts and spacing, while auxiliary explanations retain 14px text.
+
+### Fixed
+
+- **Duplicate vocabulary saves**: word lookups reuse the oldest matching card in the active plan before and after AI canonicalization, normalize case and Unicode whitespace, and promote generated cards into My Vocabulary without duplicating their review progress.
+- **Word-selection lifecycle**: stale save responses and deferred selections cannot affect newer selections or unmounted pages, and tooltips close on conversation transitions, exercise navigation, or regenerated questions while remaining open for answer and hint updates.
+- **Concurrent vocabulary deletion**: promoting an existing card uses an atomic update with returned data, treating cards deleted before promotion as lookup misses and avoiding a failing refresh after a successful promotion.
+- **Correction matching**: annotations consider exact, case-insensitive, and trimmed occurrences together, prefer whole words over subwords, allocate repeated fragments without overlapping ranges, and preserve original Unicode offsets.
+- **Incomplete writing corrections**: evaluation entries without usable original and corrected text are discarded before persistence and display.
+
 ## [1.9.5] - 2026-09-12
 
 ### Changed

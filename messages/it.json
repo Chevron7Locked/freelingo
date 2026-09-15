@@ -83,6 +83,7 @@
     "resendVerification": "Reinvia e-mail di verifica",
     "saveWord": "Salva",
     "wordSaved": "Salvato",
+    "wordAlreadySaved": "Già salvato",
     "wordSaveError": "Si è verificato un problema",
     "selectWordHint": "Seleziona una parola per salvarla nel tuo vocabolario",
     "noActivePlan": "Nessun piano di studio attivo trovato",
@@ -649,6 +650,7 @@
     "correct": "Corretto",
     "incorrect": "Errato",
     "feedback": "Feedback",
+    "corrections": "Correzioni",
     "completeLesson": "Completa lezione",
     "completing": "Completamento...",
     "relatedGrammar": "Grammatica correlata",
@@ -1461,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Novità",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Capito",
     "entry1": {
       "label": "Uno stile tutto nostro",

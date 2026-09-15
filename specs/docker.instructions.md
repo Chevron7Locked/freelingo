@@ -1,163 +1,110 @@
 ---
-description: "Docker Compose specification for FreeLingo: all services (PostgreSQL, Redis, backend, frontend, Ollama, Kokoro TTS, Whisper STT), environment variables, operational notes, and deployment guidance."
-applyTo: "docker-compose.yml, .env*, **/Dockerfile"
+description: "Current production and development Compose topology, images, persistence, environment propagation, and container startup behavior."
+applyTo: "docker-compose*.yml, .env.example, .env.dev, backend/Dockerfile, frontend/Dockerfile*, .github/workflows/docker-publish*.yml"
 ---
 
-# Docker Compose — FreeLingo
+# Docker Runtime
 
-## Service inventory
+## Production topology
 
-- **`postgres`** — Image: `postgres:16-alpine`. Ports: 5432 (internal). Phase: 1. Notes: Health check via `pg_isready`
-- **`redis`** — Image: `redis:7-alpine`. Ports: 6379 (internal). Phase: 1. Notes: Password-protected, health check via `redis-cli ping`
-- **`backend`** — Image: `ghcr.io/artcc/freelingo-backend:latest`. Ports: 8000 (internal). Phase: 1. Notes: Runs Alembic migrations automatically before Uvicorn. Depends on healthy postgres + redis.
-- **`frontend`** — Image: `ghcr.io/artcc/freelingo-frontend:latest`. Ports: 3000 (host). Phase: 1. Notes: Receives `BACKEND_URL` as runtime env var. Depends on backend.
-- **`kokoro`** — Image: `ghcr.io/remsky/kokoro-fastapi-gpu:latest-cu128`. Ports: 8880 (internal). Phase: 2. Notes: TTS — upstream image (0.4.0+), cu128 variant for Blackwell/RTX 50-series. Only needed when `TTS_PROVIDER=local`.
-- **`whisper`** — Image: `onerahmet/openai-whisper-asr-webservice:latest-gpu`. Ports: 9000 (internal). Phase: 2. Notes: STT — GPU via NVIDIA deploy block. Only needed when `STT_PROVIDER=local`.
+`docker-compose.yml` defines:
 
-Ollama is assumed to run on the host machine for GPU access, reached from containers via `host.docker.internal:11434`.
+- `postgres`: PostgreSQL 16 with authenticated health check.
+- `redis`: Redis 7 with password and authenticated health check.
+- `backend`: published FreeLingo image; waits for PostgreSQL and Redis, applies existing Alembic
+  revisions, then starts Uvicorn.
+- `frontend`: published FreeLingo image; exposes port 3000 and talks to backend through private
+  `BACKEND_URL`.
+- `kokoro`: local TTS GPU image, required only when `TTS_PROVIDER=local`.
+- `whisper`: local STT GPU image, required only when `STT_PROVIDER=local`.
 
----
+Ollama is not a Compose service. The default configuration expects it on the host through
+`host.docker.internal:11434`. The backend service declares the Linux host-gateway mapping.
 
-## Image channels
+## Development topology
 
-- Production — Branch: `main`; Backend image: `ghcr.io/artcc/freelingo-backend`; Frontend image: `ghcr.io/artcc/freelingo-frontend`
-- Develop — Branch: `develop`; Backend image: `ghcr.io/artcc/freelingo-backend-develop`; Frontend image: `ghcr.io/artcc/freelingo-frontend-develop`
+`docker-compose.dev.yml` defines PostgreSQL, Redis, a locally built backend with source mount and
+Uvicorn reload, and a locally built frontend with source/message mounts and `npm run dev`.
 
-Both channels publish `:latest` and a short SHA tag on every push. The compose file uses production images by default.
+It does not define Kokoro or Whisper. Development must therefore select external/cloud speech
+providers or compose the missing local services separately. Its default local speech hostnames are not
+services contained in that file.
 
-Both publishing workflows use `frontend/Dockerfile` and `backend/Dockerfile` from their respective branches and build Linux images for `amd64` and `arm64`. The develop workflow explicitly checks out `develop` and publishes separate `-develop` image names for deployment on the development server; production images are deployed on the production VPS after merging to `main`. `frontend/Dockerfile.dev` is used by `docker-compose.dev.yml`, not by either publishing workflow.
+`frontend/Dockerfile.dev` is used only by development Compose. Publishing workflows use the production
+backend and frontend Dockerfiles.
 
-### Backend runtime and dependency installation
+## Images and publication
 
-- `backend/Dockerfile` uses `python:3.14-slim` and installs pip 26.2.1 before application dependencies.
-- The dependency layer copies both `requirements.txt` and `constraints.txt` before running `python -m pip install --no-cache-dir -r requirements.txt`. Direct and indirect versions are fixed by those files.
-- Backend PR checks select Python 3.14, install the same pip version, and use the same requirements. Both files participate in the pip cache key. Test plugins are installed through these shared pins.
-- Pre-push synchronizes its backend environment with the same installer and dependency files. Keep Docker, CI, and pre-push aligned when updating the Python or pip versions or the dependency pins.
+Backend images use Python 3.14 and pip 26.2.1 with `requirements.txt` plus `constraints.txt`.
+Frontend production/development images use Node 25, explicitly install npm 11, and use the committed
+lockfile through `npm ci`. Production uses Next.js standalone output.
 
-### Frontend runtime and dependency installation
+Push workflows for `main` and `develop` build and publish separate Linux `amd64` and `arm64` image
+names with `latest` and short-SHA tags. They publish images only; they do not deploy to a VPS.
 
-- `frontend/Dockerfile` uses `node:25-alpine` for its dependency, builder, and runner stages. `frontend/Dockerfile.dev` uses the same base image.
-- Both Dockerfiles install `npm@11` and use `npm ci` with the committed `frontend/package-lock.json`. Installation fails if the lockfile and `package.json` are inconsistent rather than updating the dependency resolution during the image build.
-- The PR checks in `.github/workflows/pr-develop-checks.yml` select Node 25, explicitly install `npm@11`, log both runtime and package-manager versions, and then run `npm ci`.
-- Keep Node versions, npm versions, and dependency-installation policies aligned across both frontend Dockerfiles and the PR checks when upgrading. Generate the lockfile with npm 11 under the current policy.
-- `node:25-alpine` and `npm@11` select major release lines, not exact minor/patch versions or immutable image digests.
-- Production builds and runs the Next.js standalone server; the development compose configuration runs `npm run dev` with source mounts. These intentional differences do not require different Node or npm versions.
-- `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` controls the publishing workflows' JavaScript action runtime, not the Node version inside application images.
+## Persistence
 
----
+The Compose files use bind mounts below `DATA_PATH`; they do not declare named volumes.
 
-## Docker Compose structure
+- PostgreSQL: `${DATA_PATH}/postgres`.
+- Redis: `${DATA_PATH}/redis`.
+- Avatars: `${DATA_PATH}/avatars`.
+- Generated audio: `${DATA_PATH}/audio`.
+- TTS previews: `${DATA_PATH}/tts_previews`.
 
-### Named volumes
+Avatar and media access remains controlled by backend endpoints; a host mount does not make files
+public.
 
-Two named volumes: `postgres_data` and `redis_data`. Both services also accept bind mounts via `DATA_PATH` for easier backup and access outside Docker.
+## Environment propagation
 
-### PostgreSQL
+`.env.example` is the operator-facing deployment template. Compose explicitly forwards environment
+values; a field present in backend `Settings` but absent from Compose is not configurable merely by
+placing it in `.env`.
 
-- Alpine-based; credentials from env vars (`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`)
-- Health check ensures the backend waits for readiness before starting (`condition: service_healthy`)
+Operators must review database/data path, Redis password, JWT secret, CORS/cookie security,
+registration, email, available languages, LLM/speech providers, quotas, Stripe/freemium, logging, and
+analytics settings.
 
-### Redis
+`BACKEND_URL` is the frontend's private backend-connectivity variable. The frontend also receives the
+optional public Umami script and site identifiers.
 
-- Alpine-based; password-protected via `REDIS_PASSWORD`
-- Health check via authenticated ping
+The production and development Compose files currently inject an `AVAILABLE_TARGET_LANGUAGES`
+fallback containing only `en-US` and `en-GB` when the variable is absent, while `Settings` and
+`.env.example` default to the complete supported set. Operators should provide the explicit value from
+`.env.example`; the injected Compose value takes precedence.
 
-### Backend
+`ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `RATE_LIMIT_ENABLED`, and
+`AUDIO_STORAGE_PATH` exist in backend Settings but are not forwarded by the current Compose contract.
+Their in-code defaults therefore apply in containers.
 
-- Pulled with `pull_policy: always`; no bind mounts for source code
-- Startup command: `alembic upgrade head` then `uvicorn` — no manual migration step ever needed
-- Receives all configuration exclusively via environment variables
-- Bind mounts only for user-generated content: `avatars/` and `audio/`. Avatar files are persisted in `avatars/` and served only through authenticated profile endpoints; `/api/avatars/{uuid}` is an internal stored reference, not a public static mount.
-- Worker count controlled by `UVICORN_WORKERS` (default: 4)
+## Startup and migrations
 
-### Frontend
+The backend startup command applies existing Alembic revisions before starting Uvicorn. This does not
+create or review migration files. Migration generation/application outside normal startup belongs to
+the remote deployment maintainer; migrations are not created locally.
 
-- Pulled with `pull_policy: always`
-- Single runtime env var: `BACKEND_URL=http://backend:8000` (used by Next.js Route Handlers; not exposed to the browser)
-- Only service exposing a port to the host (3000)
+## GPU and provider selection
 
-### Kokoro TTS
+Production Compose declares NVIDIA reservations for Kokoro and Whisper. CPU-only operation requires
+an appropriate upstream CPU image and removal of the GPU reservation; exact upstream tags are not a
+stable FreeLingo contract.
 
-- Upstream image (`0.4.0+`). Cu128 variant (`:latest-cu128`) for Blackwell/RTX 50-series (sm_120).
-- For Maxwell/Pascal/Turing/Ampere/Hopper (sm_50–sm_90): use `:latest` (cu126, confirmed Pascal support in pyproject.toml).
-- Remove from stack entirely when `TTS_PROVIDER=openai`
-- GPU assigned via `deploy.resources.reservations.devices`; remove this block for CPU-only hosts
+When TTS or STT uses OpenAI, the corresponding local speech service is unnecessary. LLM, TTS, STT,
+recognition-language, and provider HTTP contracts belong to `services.instructions.md` and
+`speech-services.instructions.md`.
 
-### Whisper STT
+## Host requirements
 
-- GPU image by default; model and engine set via `ASR_MODEL` / `ASR_ENGINE` (forwarded from `STT_MODEL` and `STT_ENGINE`)
-- Remove from stack entirely when `STT_PROVIDER=openai`
-- GPU assigned via `deploy.resources.reservations.devices`; remove for CPU-only hosts
+- Set `vm.overcommit_memory=1` for reliable Redis background persistence.
+- Production voice conversation requires HTTPS and a reverse proxy that forwards `/ws/*` to backend.
+- Keep provider API keys and `CHANGE_ME_*` secrets out of version control.
+- Keep backend/frontend runtime and package-manager versions aligned with their PR/publish workflows
+  when intentionally upgrading them.
 
----
+## Related specifications
 
-## Environment variables
-
-The canonical reference is `.env.example` at the repo root. The categories operators must review before first deployment:
-
-- Database — Key variables: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`; Notes: All three must be set
-- Data path — Key variables: `DATA_PATH`; Notes: Host path for bind mounts (postgres, redis, avatars, audio)
-- Cache — Key variables: `REDIS_PASSWORD`; Notes: Must match in Redis command and backend URL
-- Auth — Key variables: `SECRET_KEY`; Notes: Generate with `openssl rand -hex 32`; never commit
-- CORS / Cookie — Key variables: `CORS_ORIGINS`, `COOKIE_SECURE`; Notes: Set `COOKIE_SECURE=true` when serving over HTTPS
-- Registration — Key variables: `ALLOW_REGISTRATION`, `FIRST_USER_IS_ADMIN`; Notes: Restrict signups and promote first user automatically
-- Email / SMTP — Key variables: `EMAIL_ENABLED`, `SMTP_*`, `APP_BASE_URL`; Notes: Required for email verification and password reset
-- Languages — Key variables: `AVAILABLE_TARGET_LANGUAGES`; Notes: Operator-configured target-language list; backend filters unsupported codes
-- Usage quotas — Key variables: `DEFAULT_CONVERSATION_*`, `DEFAULT_MONTHLY_TOKENS_LIMIT`, `ASSESSMENT_VOICE_TRIAL_DURATION_SECONDS`; Notes: Defaults for new/subscribed users and the post-assessment voice demo; quota values of `0` mean unlimited
-- LLM — Key variables: `LLM_PROVIDER`, `OLLAMA_*`, `OPENAI_*`, `ANTHROPIC_*`, `DEEPSEEK_*`; Notes: Provider selected via `LLM_PROVIDER`; `ANTHROPIC_MAX_TOKENS` defaults to 8192 and must not exceed the selected model's output limit
-- TTS — Key variables: `TTS_PROVIDER`, `TTS_BASE_URL`, `TTS_VOICE`, `OPENAI_TTS_*`; Notes: `local` or `openai`
-- STT — Key variables: `STT_PROVIDER`, `STT_BASE_URL`, `STT_MODEL`, `STT_ENGINE`, `OPENAI_STT_MODEL`; Notes: `local` or `openai`
-- Stripe — Key variables: `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`; Notes: Optional; disabled by default. Price IDs are configured manually from Stripe Dashboard when enabled
-- Freemium — Key variables: `FREEMIUM_CHAT_DAILY_MESSAGES`, `FREEMIUM_LESSONS_DAILY`, `FREEMIUM_LISTENING_WEEKLY`, `FREEMIUM_READING_WEEKLY`, `FREEMIUM_VOICE_WEEKLY_MINUTES`, `FREEMIUM_TRIAL_ENABLED`, `FREEMIUM_TRIAL_DAYS`; Notes: Daily/weekly quota limits for free-tier users and 7-day no-card trial toggle. Self-hosted deployments (`STRIPE_ENABLED=false`) ignore freemium settings and grant full access
-- Logging — Key variables: `LOG_LEVEL`; Notes: Default: `INFO`
-
----
-
-## Operational notes
-
-### First deployment
-
-1. Copy `.env.example` → `.env` and fill in all `CHANGE_ME_*` values
-2. `docker compose up -d` — the backend runs migrations automatically on first start
-
-### Ollama on host (recommended)
-
-Backend accesses Ollama via `host.docker.internal:11434`. On **Linux**, add `extra_hosts: ["host.docker.internal:host-gateway"]` to the backend service. On macOS and Windows, `host.docker.internal` resolves automatically.
-
-Alternatively, Ollama can run as a Docker service with its own GPU deploy block; set `OLLAMA_BASE_URL=http://ollama:11434` accordingly.
-
-### Database migrations
-
-Run via the backend container after model changes. Migrations run automatically on every container startup (`alembic upgrade head`), so manual invocation is only needed when creating new revision files.
-
-### GPU vs CPU
-
-- Kokoro TTS — GPU image: `ghcr.io/remsky/kokoro-fastapi-gpu:latest-cu128`; CPU image: `ghcr.io/remsky/kokoro-fastapi-cpu:latest`; Change needed: Replace image; remove `deploy` block
-- Whisper STT — GPU image: `*:latest-gpu`; CPU image: `*:latest`; Change needed: Replace tag; remove `deploy` block; use `STT_MODEL=small`
-
-The `deploy.resources.reservations.devices` block requires the Docker NVIDIA runtime. Remove it entirely for CPU-only hosts.
-
----
-
-## TTS/STT provider selection
-
-- `TTS_PROVIDER` — Value: `local` (default); Behaviour: Routes TTS to the `kokoro` Docker service
-- `TTS_PROVIDER` — Value: `openai`; Behaviour: Routes TTS to OpenAI TTS API — `kokoro` service not needed
-- `STT_PROVIDER` — Value: `local` (default); Behaviour: Routes STT to the `whisper` Docker service
-- `STT_PROVIDER` — Value: `openai`; Behaviour: Routes STT to OpenAI Whisper API — `whisper` service not needed
-
-When using `openai` providers, the corresponding Docker service can be removed from the stack entirely.
-
----
-
-## STT service API
-
-The Whisper service (`onerahmet/openai-whisper-asr-webservice`) does **not** implement the OpenAI API format. The correct endpoint is:
-
-```
-POST /asr?output=json&language=<iso>&task=transcribe
-Content-Type: multipart/form-data
-Field: audio_file
-```
-
-The backend passes the required ISO 639-1 language derived from the user-owned study plan. Its local STT service calls this endpoint correctly; do not confuse it with the OpenAI-compatible `/v1/audio/transcriptions` path, which does not exist in this service.
+- `.env.example`: deployable value reference.
+- `architecture.instructions.md`: runtime boundaries.
+- `speech-services.instructions.md`: provider contracts.
+- `subscriptions-freemium.instructions.md`: billing/access configuration.
+- `testing.instructions.md`: CI and local validation workflows.

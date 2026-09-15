@@ -83,6 +83,7 @@
     "resendVerification": "Resend verification email",
     "saveWord": "Save",
     "wordSaved": "Saved",
+    "wordAlreadySaved": "Already saved",
     "wordSaveError": "Something went wrong",
     "selectWordHint": "Select a word to save it to your vocabulary",
     "noActivePlan": "No active study plan found",
@@ -649,6 +650,7 @@
     "correct": "Correct",
     "incorrect": "Incorrect",
     "feedback": "Feedback",
+    "corrections": "Corrections",
     "completeLesson": "Complete Lesson",
     "completing": "Completing...",
     "relatedGrammar": "Related Grammar",
@@ -1461,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "What's New",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Got it",
     "entry1": {
       "label": "A style of our own",

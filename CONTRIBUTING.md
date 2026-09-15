@@ -24,7 +24,7 @@ When permissions allow, apply the most appropriate label when opening or triagin
 
 ### Suggesting features
 
-Open an issue describing the use case, not just the feature. The repository owner will review and label it. Check the [roadmap](specs/roadmap.instructions.md) first — the feature may already be planned.
+Open an issue describing the use case, not just the feature. The repository owner will review and label it. Check existing issues and the relevant domain specification first.
 
 ### Branch workflow
 

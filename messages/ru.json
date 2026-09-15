@@ -83,6 +83,7 @@
     "resendVerification": "Повторно отправить письмо для подтверждения",
     "saveWord": "Сохранить",
     "wordSaved": "Сохранено",
+    "wordAlreadySaved": "Уже сохранено",
     "wordSaveError": "Что-то пошло не так",
     "selectWordHint": "Выдели слово, чтобы сохранить его в своём словаре",
     "noActivePlan": "Активный учебный план не найден",
@@ -649,6 +650,7 @@
     "correct": "Верно",
     "incorrect": "Неверно",
     "feedback": "Обратная связь",
+    "corrections": "Исправления",
     "completeLesson": "Завершить урок",
     "completing": "Завершение...",
     "relatedGrammar": "Связанная грамматика",
@@ -1461,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Что нового",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Понятно",
     "entry1": {
       "label": "Наш собственный стиль",

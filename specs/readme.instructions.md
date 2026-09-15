@@ -1,67 +1,58 @@
 ---
-description: "Guidelines for maintaining FreeLingo's README.md: structure, badges, repository tree, stack table, phase status, and update rules."
+description: "Guidelines for maintaining FreeLingo's README.md: purpose, structure, deployment entry points, and update rules."
 applyTo: "**/README.md"
 ---
 
 # README Guidelines
 
+## Purpose
+
+The README is the public entry point for users, self-hosters, and contributors. It should explain what
+FreeLingo is, how to start it, and where to find detailed documentation. It is not a release ledger,
+implementation inventory, or exhaustive operations manual.
+
 ## Structure
 
-The README follows this exact structure in order:
+Keep these sections in this order:
 
-1. **Title** — Project name as H1
-2. **Badges** — shields.io `flat-square` badges: License, Next.js version, Python version, self-hosted status, hosted service availability
-3. **Logo** — Left-aligned logo from `assets/logo.png`
-4. **Description** — 2–3 sentences covering what the project is, the two deployment modes (self-hosted and hosted service), and the core feature set
-5. **Expanded description** — Paragraph-level detail on the learning methodology: CEFR curriculum, study plan, lesson types, SM-2 flashcards, AI tutor, listening exercises, progress tracking
-6. **Hosted service** — Callout linking to the hosted instance at `freelingo.app`; clarifies that self-hosting remains free under AGPL-3.0
-7. **For businesses** — Commercial offerings: private/on-premise deployment, dedicated managed instance, commercial licence. Links to `COMMERCIAL_LICENSE.md` and contact email
-8. **Architecture** — One-paragraph summary; delegates structural detail to `specs/architecture.instructions.md`
-9. **Repository** — Top-level directory tree listing directories and key root files only
-10. **Stack** — Table: layer → technology; one row per concern, no prose
-11. **Phases** — Table: phase number, name, completion status; one row per phase
-12. **Quick start** — Two deployment paths: Option A (Git clone + Docker Compose) and Option B (Portainer Stack)
-13. **Operational notes** — Key facts operators must know: recommended model, LLM/TTS/STT provider selection, target language behaviour
-14. **Linux host: Redis memory overcommit** — Host-level sysctl requirement for Redis background saves
-15. **Reverse proxy requirement** — Why a reverse proxy is mandatory in production (WebSocket upgrade + secure context for microphone)
-16. **Enabling TTS & STT** — Provider selection table, local GPU setup, voice and model reference tables, OpenAI fallback
-17. **Development** — Link to `DEVELOPMENT.md` for local development instructions
-18. **Contributing** — Link to `CONTRIBUTING.md` and CLA
-19. **License** — AGPL-3.0 reference and commercial licence option
-20. **Author** — Maintainer credit
+1. **Title, badges, and logo** — project identity and current version/runtime badges.
+2. **Overview** — deployment modes, core learning flow, and major user-facing capabilities.
+3. **Hosted service** — link to `freelingo.app` and distinction from AGPL self-hosting.
+4. **For businesses** — deployment and commercial-licence options.
+5. **Architecture** — brief system boundary with links to authoritative specs.
+6. **Repository** — top-level directory tree.
+7. **Stack** — concise layer-to-technology list.
+8. **Quick start** — Docker Compose and Portainer paths.
+9. **Operational notes** — essential provider, quota, and target-language facts.
+10. **Host requirements** — Redis memory overcommit and production reverse proxy.
+11. **TTS and STT** — provider selection and links to speech and Docker specs.
+12. **Development, contributing, licence, and author** — project links and ownership.
 
----
+## Content rules
 
-## Rules
+- Keep language factual and concise.
+- Keep the architecture summary short and delegate structure to `architecture.instructions.md`.
+- List only top-level directories and relevant root files in the repository tree.
+- Link to `https://freelingo.app` for the hosted service and to `COMMERCIAL_LICENSE.md` for commercial
+  licensing.
+- Cover both CLI and Portainer deployment in Quick start.
+- Keep required deployment variables and host prerequisites explicit.
+- Delegate CI, dependency installation, provider contracts, model matrices, voice catalogs, and full
+  environment-variable reference to their dedicated files and specs.
+- Do not add phase/completion matrices, test counts, release history, or session-specific status.
+- Do not add a separate Features section; the overview owns concise feature coverage.
+- Avoid Markdown tables; use short lists that remain readable on narrow screens.
 
-- Badges must use shields.io `flat-square` style; update version values on every version bump
-- Descriptions must be factual and concise — no marketing language
-- The Stack table stays brief: layer → technology only, no inline descriptions
-- The Repository section lists only top-level directories and root files — never a deep file tree. Include all visible root files (AGENTS.md, CHANGELOG.md, CODE_OF_CONDUCT.md, COMMERCIAL_LICENSE.md, CONTRIBUTING.md, CONTRIBUTOR_LICENSE_AGREEMENT.md, DEVELOPMENT.md, docker-compose.yml, docker-compose.dev.yml, LICENSE, README.md, run-dev.sh)
-- The Phase table must always include every phase; mark completed phases with ✅ Complete and add new rows as phases ship
-- The Quick start section must cover both Option A (CLI) and Option B (Portainer)
-- The Hosted service callout must always link to `https://freelingo.app`
-- The For businesses section must link to `COMMERCIAL_LICENSE.md` and include contact information
-- The Development section must link to `DEVELOPMENT.md`
-- Do not add a separate "Features" section; feature detail belongs in the expanded description
+## When to update
 
----
+Update the README for:
 
-## When to update the README
+- user-facing capabilities that materially change the overview;
+- supported technology or deployment changes;
+- new top-level directories or relevant root files;
+- version badges;
+- commercial, licensing, hosted-service, or operational requirement changes;
+- development or contribution entry-point changes.
 
-- New user-facing feature — Update expanded description if relevant
-- New phase completed — Add/update row in Phase table
-- New technology introduced — Add row to Stack table
-- New architecture decision — Update Architecture section
-- New top-level directory or root file added — Add line to Repository section
-- Version bump — Update version badges
-- New commercial offering — Update For businesses section
-- New operational requirement (e.g., Redis config) — Add to Operational notes or create new subsection
-- New development workflow — Update Development section link
-
-Do **not** update the README for:
-
-- Internal refactors
-- New files within an existing module
-- Test additions
-- Spec file content changes (structure changes only)
+Do not update it for internal refactors, files added inside existing modules, tests, implementation
+counts, or spec content changes that do not affect public navigation.

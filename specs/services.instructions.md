@@ -1,253 +1,177 @@
 ---
-description: "Service layer reference for FreeLingo: 21 backend services covering LLM, TTS/STT, study plan, lessons, static-resource native help, flashcards, listening, reading, reviews, memory, progress, quotas, subscriptions, freemium, post-assessment voice trial, and voice conversation pipeline."
+description: "Current backend service contracts, authoritative inputs, persistence effects, provider boundaries, and failure behavior."
 applyTo: "backend/app/services/**, backend/app/core/app_logger.py"
 ---
 
-# Service Layer — FreeLingo
+# Service Layer
 
-All external dependencies are accessed through the service layer. The frontend never calls Ollama, Kokoro, or Whisper directly — the backend is the single gateway.
+## Boundary
 
-## LLM Adapter (`llm_adapter.py`)
+Services implement reusable domain behavior and external-provider adapters. Routers remain responsible
+for authentication, ownership resolution, rate limits, transport framing, and HTTP status mapping.
+The frontend never calls an external provider directly.
 
-Singleton providing provider-agnostic LLM access. Supports four providers selectable via `LLM_PROVIDER` env variable:
+## LLM adapter
 
-- ollama — Client: AsyncOpenAI (openai SDK); Max tokens: 8192; Notes: Local, openai-compatible endpoint
-- openai — Client: AsyncOpenAI; Max tokens: 128K; Notes: —
-- deepseek — Client: AsyncOpenAI; Max tokens: 128K; Notes: openai-compatible endpoint
-- anthropic — Client: AsyncAnthropic (anthropic SDK); Context window: 200K; Output limit: configurable with `ANTHROPIC_MAX_TOKENS` (default 8192); Notes: Separate code path; system message extracted
+`llm_adapter.py` provides provider-neutral access to Ollama, OpenAI, Anthropic, and DeepSeek.
 
-**Key capabilities:**
+- `chat(messages, stream=False, tools=None, tool_executor=None, fallback_messages=None)` returns text
+  or a normalized async stream.
+- Tool streaming executes at most the first tool call, performs one native continuation, exposes tool
+  results and usage, and can reset visible output before a complete no-tools fallback.
+- Explicit tool incompatibility raises/records `LLMToolsUnsupportedError`; voice remembers that state
+  only for its current WebSocket session.
+- `structured_output(messages, schema)` requests JSON and validates a Pydantic model, with one
+  correction generation after parse/validation failure.
+- `parse_llm_json(raw)` strips optional fences and parses JSON for callers that do not use structured
+  output.
+- The exception hierarchy includes `LLMError`, `LLMTimeoutError`, `LLMUnavailableError`,
+  `LLMResponseError`, `LLMContextOverflowError`, and `LLMToolsUnsupportedError`.
 
-- `chat(messages, stream=False, tools=None, tool_executor=None, fallback_messages=None)` — returns a string or normalized async stream; native tools require streaming and an executor, while optional fallback messages provide a prompt that does not advertise unavailable tools
-- Native tool streaming supports OpenAI-compatible and Anthropic event formats, forwards visible text progressively while keeping tool metadata internal, executes at most the first tool call, then performs one provider-native continuation without re-offering tools. OpenAI GPT-5.6 Chat Completions use `reasoning_effort="none"` only for that tool round; Anthropic, DeepSeek, Ollama, older OpenAI families, and ordinary no-tool requests receive no such parameter. Tool-enabled request or stream failures before visible output fall back once without tools across every provider. Explicit incompatibilities are detected through wrapped provider exceptions and become session-local unavailable capability for voice; generic transient failures do not. Known incompatibility or continuation failure after visible output emits `LLMStreamReset` before a complete no-tools retry, and an empty fallback raises `LLMResponseError`. Successful tool execution emits `LLMToolResultEvent` immediately so committed saves can be reported even if continuation later fails. The returned stream also exposes accumulated `tool_results`, combined token usage, and explicit incompatibility state.
-- `structured_output(messages, schema)` — returns a validated Pydantic model (JSON mode + retry on parse failure); Anthropic responses stopped by the configured output limit raise `LLMResponseError` with the partial response instead of surfacing a misleading JSON parse failure
-- `parse_llm_json(raw)` — module-level utility; strips optional code fences and parses JSON from LLM output. Kept for lower-level parsing tests and any legacy callers; reading/listening generation now uses `structured_output()`.
-- 2 automatic retries with exponential backoff, 120 s timeout
-- Custom exception hierarchy: `LLMError`, `LLMTimeoutError`, `LLMUnavailableError`, `LLMResponseError`, `LLMContextOverflowError`
+Retry, streaming-failure, and provider-output behavior is defined in
+`llm-error-handling.instructions.md`.
 
-## Assessment Service (`assessment.py`)
+## Assessment
 
-- Deterministic CEFR evaluation (no LLM): groups quiz answers by difficulty, finds highest level with >=2 questions and >=60% correct
-- LLM-powered: free-write evaluation, end-of-level test generation (constrained to studied grammar/vocabulary)
+`assessment.py` evaluates adaptive quiz records deterministically and provides LLM-backed free-write
+evaluation and end-of-level test generation/evaluation. The latter two parse JSON manually rather than
+through the shared structured-output path.
 
-## Assessment Voice Trial (`assessment_voice_trial.py`)
+`assessment_voice_trial.py` issues short-lived Redis credentials for the one-time hosted
+post-assessment voice demo. Durable consumption state is stored on the user and is marked only when the
+WebSocket session starts.
 
-- Grants a one-time post-assessment voice conversation demo for unsubscribed hosted users. Duration comes from `ASSESSMENT_VOICE_TRIAL_DURATION_SECONDS` (default `300`, 5 minutes).
-- Stores the durable used state on `users.assessment_voice_trial_used` and uses Redis tokens as short-lived credentials that can be regenerated while the demo remains unused.
-- Tokens are created after `POST /api/assessment/complete` or regenerated by `POST /api/assessment/voice-trial` when the user skipped the demo but still has an active plan and unused entitlement.
-- Validated by `POST /api/conversation/warmup` and `/ws/conversation`; consumed only when the WebSocket session starts.
+## Study plans and lessons
 
-## Study Plan Generator (`study_plan_generator.py`)
+`study_plan_generator.py` is deterministic. It traverses each curriculum unit's declared
+`lesson_types`, distributes one slot per plan day, and reserves the final slot for the completion test.
 
-Fully deterministic — no LLM. Uses static curriculum data from `curriculum.py` to distribute units across weeks/days. The `distribute_units()` function maps curriculum units onto lesson slots based on duration and intensity, cycling lesson types (grammar → vocabulary → reading → writing → review). The last slot is always reserved for the end-of-level completion test.
+`lesson_generator.py` uses the LLM within curriculum, CEFR, target-language, and native-language
+constraints. It:
 
-## Lesson Generator (`lesson_generator.py`)
+- generates lesson explanation, vocabulary, and validated exercise structures;
+- varies instructions by declared lesson type;
+- summarizes bounded prior-unit content to reduce repetition;
+- generates/caches missing native explanations and hints;
+- regenerates one unanswered technically invalid exercise in place;
+- evaluates free-write and pronunciation answers, including usable correction objects.
 
-LLM-powered lesson content generation with strict constraints:
+Persisted plan ownership supplied by routers determines language. Detailed lifecycle and compatibility
+behavior belongs to `study-plan.instructions.md`.
 
-- Grammar constrained to the target language's validated curriculum grammar slugs; Japanese currently contributes 130 validated slugs, while Korean and Mainland Chinese each contribute 126 validated slugs across A1-C2.
-- CEFR level and target language adherence using BCP-47 `target_language`, human-readable language names, and centralized prompt overlays.
-- Lesson generation receives the user's mandatory `native_language` at every CEFR level and may include `native_explanation` alongside the target-language `explanation`, including translated key points, examples, common traps, and a mini-glossary for guided study.
-- Generates 3-5 exercises per lesson (multiple_choice, fill_blank, free_write, pronunciation). Newly generated exercises can include an optional concise `native_explanation` in the user's native language and an optional `native_hint` that helps before answering without revealing the answer. Both are stored in `lesson.content.exercises[*]` and surfaced by the lesson detail endpoint without adding database columns. Exercises are schema-validated to reject empty questions/answers, require fill-blank questions to contain `___`, and require multiple-choice exercises to include usable options with an exact matching correct answer. Missing exercise-level native explanations and hints can be generated on demand from the target-language exercise fields and cached into the same JSON structure. One unanswered exercise with a technical validation error can also be regenerated on demand from the lesson context; the existing exercise row is updated in place and `lesson.content.exercises[*]` is kept in sync.
-- Generates enriched lesson vocabulary items with target-language word, definition, and example fields plus optional native-language translation, example translation, usage note, and optional reading/pronunciation guide. The extra fields are stored inside `lesson.content.vocabulary` and remain backward-compatible with older three-field vocabulary items.
-- Differentiates lessons inside a unit: `build_previous_lessons_summary()` condenses the already generated lessons of the same unit (titles, types, explanation excerpts, example sentences, vocabulary, common traps, capped in count and length) and the generation prompt receives them as delimited data the new lesson must not repeat. The declared `lesson_type` additionally selects a per-type instruction block, so `grammar`, `vocabulary`, `reading`, `writing`, `listening`, `speaking`, and `review` lessons on the same topic differ in explanation, exercise mix, and vocabulary. Speaking lessons use oral-production guidance and the same 30% grammar minimum as other lexical, comprehension, and production-focused types.
-- Separately evaluates free_write answers and pronunciation (scored 0.0–1.0 with feedback)
+## Flashcards and progress
 
-## Flashcard SM-2 (`flashcard_sm2.py`)
+`flashcard_sm2.py` applies SM-2 updates for quality 0-5 and generates cards with native-language
+translation context. Generated cards receive target language from the persisted active plan.
 
-Full SM-2 spaced repetition algorithm:
+`progress_service.py` updates daily XP, streak, exercise skill EMA, and unit competency EMA. It can
+flush without committing so lesson completion can include progress in one transaction. Progress is
+always credited to the resource-owning plan.
 
-- `sm2_update(card, quality)`: modifies ease_factor, interval, repetitions, and next_review based on 0–5 quality rating
-- LLM-powered `generate_flashcards`: creates flashcards with native-language translations; stored native-language codes are converted to human-readable names before prompt injection. The router always supplies the active persisted plan's target language and does not accept a client-selected target language for generated cards.
+## Static-resource help
 
-## Resource Native Help (`resource_native_help.py`)
+`resource_native_help.py` hashes canonical resource source data, returns only hash-current cache rows,
+upserts generated help, and builds Redis lock keys. Grammar, Vocabulary, and Phrasebook identify cache
+rows by resource type/key, target language, and native language; source hash determines freshness.
 
-Shared cache helpers for native-language support generated from static resource content:
+## Language helpers and lifecycle
 
-- `calculate_source_hash(source)` serializes resource source data deterministically and returns a SHA-256 hash.
-- `get_cached_native_help(...)` returns a `ResourceNativeHelp` row only when the resource cache key exists and its `source_hash` still matches the current static source.
-- `upsert_native_help(...)` creates or refreshes the global cache row for a resource/native-language pair.
-- `native_help_lock_key(...)` builds Redis lock keys so routers can avoid duplicate LLM generations for the same resource.
+`language_helpers.py` exposes prompt/display name, self name, flag, ISO 639-1, script, romanization,
+word-spacing, and comprehension-length metadata. Unknown codes use the fallback behavior defined in
+`target-language.instructions.md`.
 
-Current consumers are grammar native help via `POST /api/grammar/{slug}/native-help`, phrasebook native help via `POST /api/phrasebook/{category_id}/native-help`, and vocabulary native help via `POST /api/vocabulary/{set_id}/native-help`. Generated content is shared across users with the same `(resource_type, resource_key, target_language, native_language)` and regenerated automatically when the source static resource hash changes.
+`user_language_service.py` owns language lifecycle operations:
 
-## Language Helpers (`language_helpers.py`)
+- list and resolve the active user language;
+- add or ensure a supported operator-enabled language;
+- switch the single logical active language and synchronize the compatibility field;
+- remove a language and its language-owned data while preserving global account state;
+- normalize missing, duplicate, conflict, and last-language errors for routers.
 
-Shared BCP-47 conversion utilities and language capability metadata used across the service layer:
+## Memory
 
-- `get_language_name(target_language)` — converts BCP-47 target-language codes to prompt-ready display names such as `English (UK)`, `Spanish (Spain)`, and `European Portuguese`
-- `get_native_language_name(native_language)` — converts stored native-language profile codes such as `es` and `fr` to prompt-ready names such as `Spanish` and `French`
-- `get_iso639(target_language)` — strips region subtag: `"en-US"` → `"en"` for Whisper
-- `get_language_script(target_language)` — returns writing-system metadata, including `hiragana-katakana-kanji`, `hangul`, and `simplified-hanzi` for CJK targets
-- `get_language_romanization(target_language)` — returns learner-support romanization metadata (`romaji`, `revised-romanization`, `pinyin`) or an empty string for Latin-script targets
-- `uses_word_spacing(target_language)` — records whether ordinary text uses visible word spacing; Japanese and Mainland Chinese return `False`
-- `get_reading_length_unit(target_language)` — returns `words` or `characters` for generated comprehension guidance
-- `get_comprehension_length_guidance(target_language, base_word_count)` — returns language-aware length strings such as `160–240 characters` for Japanese/Chinese and `80 words` for word-spaced targets
-- `voice_session_title(native_language)` — localised "Voice session — date" strings for all 10 supported languages
+`memory_service.py` builds the native `save_user_memory` tool and escapes memories as untrusted prompt
+data. Automatic and manual saves are global per user, exact duplicates are skipped, collection
+mutations are serialized, and optional study-plan ID records provenance only. Automatic persistence is
+best-effort and must not fail the visible tutor response.
 
-Japanese (`ja-JP`), Korean (`ko-KR`), and Mainland Chinese (`zh-CN`) are now enabled in registration schemas, `AVAILABLE_TARGET_LANGUAGES` defaults, static content dispatchers, and target-language prompt metadata.
+## Speech
 
-## Memory Service (`memory_service.py`)
+`tts_service.py` exposes `synthesize(text, voice=None, language=None) -> bytes` through local Kokoro or
+OpenAI. Both adapters currently ignore `language`; provider voice configuration determines output.
 
-Handles global per-user persistent context across text and voice conversations:
+`stt_service.py` exposes
+`transcribe(audio_bytes, filename, mime_type, *, language) -> str` through local faster-whisper or
+OpenAI. `language` is required and explicit. Resource STT derives it from an owned plan; voice derives
+it from resolved session language.
 
-- `build_save_user_memory_tool(native_language_name)` defines the strict 200-character native `save_user_memory` tool and requires automatic memories to be written in the user's configured native language.
-- `build_memory_context(memories)` escapes and formats up to 20 recent memories as untrusted prompt data.
-- `save_memories(...)` serializes per-user collection mutations, skips exact duplicates, stores optional plan provenance, and enforces a 150-item FIFO cap.
-- `execute_save_user_memory(...)` validates and persists a native tool call without failing the visible response when persistence fails.
-- `create_memory(...)`, `get_user_memories(...)`, `delete_memory(...)`, and `clear_all_memories(...)` power manual global management. Saves, individual deletion, and clear-all share the same per-user row lock; retrieval and deletion are keyed only by `user_id`, and `study_plan_id` is nullable provenance.
+Provider details belong to `speech-services.instructions.md`.
 
-## Progress Service (`progress_service.py`)
+## Listening and Reading
 
-- Atomic daily progress updates: XP (20 per lesson, 5 per correct exercise, 1 per wrong, 2 per flashcard)
-- `update_daily_progress(..., commit=False)` flushes without committing so callers such as lesson completion can include progress in a larger transaction; the default remains self-contained commit-and-refresh behavior.
-- Streak calculation: counts consecutive days with activity
-- Skill scoring: 0.7/0.3 exponential moving average per skill
-- Unit competency tracking: per-competency EMA, marked mastered at >=0.80
+`listening_service.py` resolves reusable exercises, generates structured content and TTS audio, scores
+attempts, and returns paginated history. Generation accepts an optional voice. Initial duplicate
+attempts are rejected; `is_replay=True` creates another attempt with zero XP. Submission and history
+accept plan/language context so progress and retrieval remain isolated.
 
-## TTS Service (`tts_service.py`)
+`reading_service.py` provides the equivalent text-only flow with language-aware cultural topics and
+length guidance. Replays likewise persist with zero XP.
 
-Abstracts TTS behind a common `synthesise(text, voice) → bytes` interface. Provider selected via `TTS_PROVIDER`:
+Pool, generation-lock, attempt, and history behavior belongs to the Listening and Reading specs.
 
-- **`local`**: HTTP client to Kokoro-FastAPI — `POST /v1/audio/speech`. Returns MP3 audio bytes.
-- **`openai`**: OpenAI TTS API (`tts-1` model, configurable via `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE`).
+## Reviews
 
-## STT Service (`stt_service.py`)
+`review_service.py` enforces one review per user, derives display-name and active-language snapshots,
+resets moderation approval after edits, and provides admin approval/deletion helpers. Public filtering
+is performed by the router.
 
-Abstracts STT behind a common `transcribe(audio_bytes, filename, mime_type, *, language) → str` interface. `language` is a required keyword-only ISO 639-1 code; neither provider has an implicit English fallback. Provider selected via `STT_PROVIDER`:
+## Access and quotas
 
-- **`local`**: HTTP client to Whisper ASR — `POST /asr?output=json&language=<lang>&task=transcribe` (multipart). Uses `onerahmet/openai-whisper-asr-webservice` image (not OpenAI-compatible endpoint).
-- **`openai`**: OpenAI Whisper API (`whisper-1` model, configurable via `OPENAI_STT_MODEL`).
+`subscription_service.py` is the source of paid-access state. When Stripe is disabled it grants
+self-hosted access; otherwise only `trialing` and `active` grant subscription access. Subscription
+activation reapplies configured account quotas.
 
-Generic pronunciation and flashcard recordings include a required `study_plan_id`. The STT router verifies that the plan belongs to the authenticated user, reads `StudyPlan.target_language`, and converts it through `language_helpers.get_iso639` before calling the selected service. Conversation sessions derive the same code from their selected target language; the synthetic warmup probe passes `en` explicitly because its silent audio has no learning-language content.
+`quota_service.py` evaluates global per-user voice session/minute and monthly token limits. A global
+quota value of zero means unlimited.
 
-## Logging & Observability (`core/app_logger.py`)
+`freemium_service.py` stores daily/weekly counters in Redis and exposes feature-specific operations:
 
-Backend modules now use a shared logging wrapper:
+- `check_{feature}_quota(...)` returns a `QuotaResult` without recording usage;
+- `record_{feature}_usage(...)` increments usage after success;
+- `maybe_record_freemium_usage(...)` records best-effort when the access mode requires it;
+- `get_freemium_status(redis, user_id, freemium_trial_ends_at)` builds the flat status response.
 
-- `get_logger(__name__)` returns an `AppLogger` instance used across routers and services.
-- `AppLogger` supports both styles:
-  - classic stdlib-style messages with positional placeholders (`%s`)
-  - event-style structured logs (`logger.info("event", key=value, ...)`)
-- Effective verbosity is still controlled globally by `LOG_LEVEL` from `.env` (`DEBUG`, `INFO`, `WARNING`, `ERROR`) and configured in `main.py` via `logging.basicConfig(...)`.
+Checking and recording are separate. The Redis increment/TTL operation is atomic, but the complete
+check-then-use flow is not one atomic transaction. A freemium feature limit of zero means blocked.
 
-For TTS diagnostics, `/api/tts` emits per-request trace and latency fields in logs and response headers so frontend, proxy, and backend timings can be correlated end-to-end.
+## Email
 
-The `language` parameter is derived dynamically from the resource-owning plan's `target_language` via `language_helpers.get_iso639` (e.g. `"it-IT"` → `"it"`). STT request logs include user, plan, BCP-47 target language, effective ISO code, provider, model, and audio byte count.
+`email_service.py` renders escaped localized HTML and sends mail only when email is enabled. Public
+methods cover verification, password reset, welcome, account deletion, contact, feedback, and review
+notifications. User-facing locale comes from the recipient; administrator notifications use the first
+administrator's native language with English fallback. Notification failures after durable feedback or
+review creation are logged without rolling back that content.
 
-## Email Service (`email_service.py`)
+## Voice conversation pipeline
 
-SMTP email dispatch via **fastapi-mail 1.4.1** (async, `aiosmtplib` backend). Only active when `EMAIL_ENABLED=true`.
+`conversation_pipeline.py` orchestrates explicit-language STT, memory-aware LLM streaming, sentence
+TTS, serialized WebSocket writes, timeouts, interruption, and transcript persistence.
 
-- `send_verification_email(to, display_name, token, locale)` — sends a verification link valid 24 h.
-- `send_reset_password_email(to, display_name, token, locale)` — sends a password-reset link valid 1 h.
-- `send_contact_email(sender_email, subject, description, locale)` — forwards a contact-form submission to `CONTACT_EMAIL`. Sets `Reply-To` to the sender's address. Raises on SMTP failure (the router converts this to HTTP 502). Admin-facing labels and subject prefix are translated with `locale`.
-- `send_feedback_notification(entry_type, title, description, author_username, entry_id, locale)` — notifies `CONTACT_EMAIL` when a feature request or bug report is created. Admin-facing labels and subject prefix are translated with `locale`; errors are logged and do not fail the already-persisted feedback entry.
-- `send_review_notification(user_display_name, rating, comment, target_language, review_id, locale)` — notifies `CONTACT_EMAIL` when a user creates a new product review. Admin-facing labels and subject prefix are translated with `locale`; errors are logged and do not fail the already-persisted review.
+Its in-memory prompt buffer is bounded, while complete user/assistant transcript messages are persisted
+in `chat_history` and the parent conversation is updated. Provider turn failures may remain recoverable;
+fatal session errors release resources. Detailed protocol belongs to
+`voice-conversation.instructions.md`.
 
-Email methods with a `locale` parameter accept BCP-47 language tags (e.g. `"es"`) and render translated bodies or admin-facing labels using internal i18n dicts covering the 10 supported UI languages. User emails use the recipient user's native language. Admin contact/feedback/review emails use the native language of the first admin user by ascending `id`, with English fallback for unsupported locales. HTML templates are in `backend/app/templates/email/`.
+## Logging
 
-Email template rendering escapes every interpolated value by default (`html.escape(..., quote=True)`) to prevent HTML injection from user-controlled fields such as contact subjects/messages, feedback titles/descriptions, and review comments. Only application-controlled snippets that intentionally contain markup (`<br />`, `<strong>`, etc.) are wrapped with the internal `_safe_html()` helper before rendering.
+`core/app_logger.py` wraps standard Python logging and accepts both positional formatting and
+event-style keyword fields. `LOG_LEVEL` configures verbosity. Sensitive tokens, credentials, raw audio,
+and private prompt content must not be logged.
 
-## Listening Service (`listening_service.py`)
+## Related specifications
 
-Manages AI-generated listening exercises end-to-end (Phase 6):
-
-- `get_available_exercise(level, target_language, user_id, db)` — returns the oldest unplayed exercise for the user's level/language, excluding already-attempted ones. Returns `None` if pool is empty.
-- `generate_and_save_exercise(level, target_language, db, tts_service, storage_path)` — calls LLM through `structured_output()`, extracts topic + text + 5 questions, synthesises MP3 via TTS service, flushes to DB to get the ID, writes audio to `{storage_path}/listening/{id}.mp3`, then commits. Prompt length guidance is generated through `get_comprehension_length_guidance()` so Japanese and Mainland Chinese use character ranges instead of word counts. Current Japanese, Korean, and Mainland Chinese study plans include listening slots from A2-C2.
-- `calculate_score(questions, answers) → (score, xp_earned)` — pure function, case-insensitive comparison, 10 XP per correct answer.
-- `submit_attempt(exercise_id, user_id, answers, db)` — checks for duplicate (raises 409), calculates score, awards XP via Progress service, increments `play_count`.
-- `get_user_history(user_id, db, skip, limit)` — JOIN query returning `(list[tuple[ListeningAttempt, ListeningExercise]], total)`.
-
-**Exercise types by CEFR level** (`_TYPES_BY_LEVEL`):
-
-- A1, A2 — `monologue`, `announcement`, `voicemail`, `dialogue`, `story`
-- B1 — `announcement`, `voicemail`, `story`, `dialogue`, `podcast`
-- B2 — `voicemail`, `story`, `podcast`, `interview`, `news`
-- C1, C2 — `story`, `podcast`, `interview`, `news`, `monologue`
-
-## Reading Service (`reading_service.py`)
-
-Manages AI-generated reading comprehension exercises end-to-end (Phase 7):
-
-- `get_available_exercise(level, target_language, user_id, db)` — returns the oldest unread exercise for the user's level/language, excluding already-attempted ones. Returns `None` if pool is empty.
-- `generate_and_save_exercise(level, target_language, db)` — calls LLM through `structured_output()`, extracts topic + text + 5 questions. No audio — text is served directly to the client. Prompt length guidance is generated through `get_comprehension_length_guidance()` so Japanese and Mainland Chinese use character ranges instead of word counts. Cultural-topic guidance is language-aware, with dedicated topic pools for Japanese, Korean, Mainland Chinese, and the existing European/American language variants.
-- `calculate_score(questions, answers) → (score, xp_earned)` — pure function, case-insensitive option comparison, 10 XP per correct answer.
-- `submit_attempt(exercise_id, user_id, answers, db)` — checks for duplicate (raises 409), calculates score, awards XP via Progress service, increments `view_count`.
-- `get_user_history(user_id, db, skip, limit)` — JOIN query returning `(list[tuple[ReadingAttempt, ReadingExercise]], total)`.
-
-**Exercise types by CEFR level** (`_TYPES_BY_LEVEL`):
-
-- A1, A2 — `notice`, `email`
-- B1 — `email`, `article`, `news`
-- B2 — `article`, `news`, `blog_post`, `review`
-- C1 — `news`, `blog_post`, `review`, `essay`
-- C2 — `review`, `essay`
-
-## Review Service (`review_service.py`)
-
-Manages one moderated product review per user (Phase 11):
-
-- `get_user_review(db, user_id)` - returns the authenticated user's existing review or `None`.
-- `create_review(db, user, rating, comment)` - creates the user's single review, derives `user_display_name` from the authenticated user, derives `target_language` from the active learning language with `user.target_language` fallback, normalizes duplicate submissions to HTTP 409, and creates reviews as unapproved.
-- `update_user_review(db, user, rating, comment)` - updates the authenticated user's existing review, refreshes the display-name and active-learning-language snapshots, resets `is_approved=false` so edits are moderated again, and returns HTTP 404 when no review exists.
-- `delete_user_review(db, user_id)` - deletes the authenticated user's own review and returns HTTP 404 when no review exists.
-- `get_review_or_404(db, review_id)` - shared admin lookup helper.
-- `update_review_approval(db, review_id, is_approved)` - admin approve/unapprove operation, updating `updated_at`.
-- `delete_review(db, review_id)` - admin delete operation.
-
-Public review listing is performed by `routers/reviews.py` and always filters to `is_approved=true` and `rating >= 4`.
-
-## Quota Service (`quota_service.py`)
-
-Enforces per-user voice conversation quotas stored on the `users` table:
-
-- `conversation_daily_minutes`: max minutes of voice conversation per calendar day.
-- `conversation_weekly_minutes`: max minutes per calendar week (Mon–Sun).
-- `conversation_weekly_sessions`: session count for the current week.
-- `monthly_tokens_limit`: max LLM tokens for the current calendar month.
-
-Default quota values for new users and subscription activation come from `DEFAULT_CONVERSATION_*` and `DEFAULT_MONTHLY_TOKENS_LIMIT` settings. A quota value of `0` means unlimited.
-
-Called by the conversation router before opening a WebSocket session.
-
-## Subscription Service (`subscription_service.py`)
-
-Single source of truth for subscription-based access control (Phase 5):
-
-- `is_subscribed(user, stripe_enabled) → bool` — returns `True` unconditionally when `stripe_enabled=False` (self-hosted mode, default); otherwise requires `subscription_status` to be `"trialing"` or `"active"`.
-- `apply_subscription_quotas(user, db)` — resets conversation and token quotas to environment-configured defaults when a subscription becomes active or enters trial.
-
-Stripe lifecycle states such as `past_due`, `unpaid`, `paused`, `incomplete`, `incomplete_expired`, and `canceled` never grant access. The frontend distinguishes payment-recovery states (`past_due`, `unpaid`, `paused`) from normal plan-selection states (`none`, `incomplete`, `incomplete_expired`, `canceled`).
-
-Used by `require_subscription` in `core/deps.py`, which gates subscription-only access. Maintenance mode is handled separately by `require_not_maintenance` on chat, listening, reading, and conversation warmup endpoints. Authenticated memory-management endpoints intentionally use neither dependency so users can inspect and control stored personal context regardless of subscription or maintenance state.
-
-## Freemium Service (`freemium_service.py`)
-
-Manages freemium quota checking, usage recording, trial state, and status response building:
-
-- Quota keys are stored in Redis with auto-expiring TTL: `freemium:{feature}:{user_id}:{date_or_week}` where `feature` is `chat`, `lessons`, `listening`, `reading`, or `voice`. Daily features (`chat`, `lessons`) use date-based keys; weekly features (`listening`, `reading`, `voice`) use ISO week-based keys.
-- Atomic increment via a Lua script (`check_and_increment.lua`) that reads the current count, returns it, and increments if under the limit — avoiding race conditions with concurrent access.
-- `get_freemium_status(db, user)` — builds the complete `GET /api/freemium/status` response: trial active/expired flag, trial end date, and remaining quota counts for all 5 features (`chat_remaining`, `lessons_remaining`, `listening_remaining`, `reading_remaining`, `voice_minutes_remaining`). A quota value of `0` means the feature is blocked for free-tier users.
-- `check_freemium_quota(user, feature, db)` — checks if the user has remaining quota for the given feature. Returns `True` if quota is available. Considers: trial active → unlimited access; quota value `0` → blocked; otherwise checks Redis counter against the configured limit.
-- `record_freemium_usage(user, feature, db, amount=1)` — atomically increments the Redis counter for the given feature after successful usage.
-- `is_freemium_trial_active(user)` — returns `True` when the user's `freemium_trial_ends_at` is in the future.
-- Trial is set on registration: when `STRIPE_ENABLED=true` and `FREEMIUM_TRIAL_ENABLED=true`, the user model's `freemium_trial_ends_at` is set to `now + FREEMIUM_TRIAL_DAYS` days and `freemium_trial_used` is set to `true`.
-
-Quota limits are environment-driven and return `0` (blocked) when the corresponding feature is premium-only for free-tier users.
-
-## Conversation Pipeline (`conversation_pipeline.py`)
-
-WebSocket-based voice conversation orchestrator:
-
-1. Starts the initial greeting as a cancellable task, then immediately enters the WebSocket receive loop.
-2. Receives audio chunks from client (WebSocket binary frames) and resets inactivity state.
-3. Barge-in protocol: explicit interrupts or new audio while a backend task is active can cancel the current greeting or LLM+TTS generation and send `barge_in` to the client. The current frontend ignores VAD detections during active assistant turns for stability.
-4. Sends audio to STT service for transcription; empty/whitespace transcriptions are ignored and do not call the LLM.
-5. Builds prompt with system message + last 20 message history.
-6. Executes at most one native memory tool call, collects the visible continuation, and validates the speech text. An explicit tool-capability rejection disables tools only for the remainder of that voice WebSocket session; failed memory work remains invisible to the user.
-7. Splits the complete assistant response on full stops and synthesizes ordered sentence chunks through TTS, with one retry per sentence.
-8. Sends each MP3 binary frame to the client as soon as that sentence audio is ready; failed sentence chunks are skipped so later chunks can still play.
-9. Emits the complete final assistant transcript after the first successful audio chunk; if every TTS chunk fails, emits the transcript as a text-only fallback. Then sends `status=listening` and `turn_complete` after all chunks have been processed.
-10. Serializes all WebSocket writes through one send lock so audio, transcript/status messages, timeout watchers, and close frames do not race.
-11. Timeout watchers: max duration (default 30 min via `DEFAULT_CONVERSATION_MAX_DURATION`) and inactivity (default 3 min via `DEFAULT_CONVERSATION_INACTIVITY_TIMEOUT`) with 60 s warnings.
+- `database-models.instructions.md`: persistent effects and relationships.
+- `api-endpoints.instructions.md`: router and transport contracts.
+- `prompts.instructions.md`: prompt ownership and composition.
+- `llm-error-handling.instructions.md`: normalized provider failures.
+- Domain specs: feature-specific rules and frontend behavior.

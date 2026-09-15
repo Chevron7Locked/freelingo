@@ -1,251 +1,168 @@
 ---
-description: "Canonical checklist for adding a new FreeLingo target language, based on the British English data package structure and current language dispatchers."
-applyTo: "backend/app/data/**, backend/app/schemas/auth.py, backend/app/core/config.py, frontend/src/lib/target-languages.ts, messages/**, specs/**"
+description: "Current implementation checklist and quality gates for adding a complete target language without silent English fallback."
+applyTo: "backend/app/{data/**,core/config.py,schemas/auth.py,services/{language_helpers,reading_service}.py,services/prompts/common.py}, frontend/{src/{app,components,lib}/**,public/flags/**,tests/**}, messages/**, .env.example, .env.dev"
 ---
 
 # Add Target Language
 
-This is the current standard for adding a new learning language to FreeLingo. The structural reference is **British English (`en-GB`)**, the original complete backend data package.
+## Completion rule
 
-Use `backend/app/data/en_GB/` as the baseline when creating a new package. Adapt the linguistic content to the new language; do not copy English pedagogy where it does not fit.
+A target language is selectable only after its learning package, dispatchers, metadata, frontend
+catalog, assets, UI translations, provider assumptions, and integrity tests are complete. Do not add a
+code to `SUPPORTED_TARGET_LANGUAGES` as a placeholder.
 
-## No English Visible Content
+Use `backend/app/data/en_GB/` as a structural baseline, not a pedagogical template. Depth should be
+comparable to mature packages, but exact topic/unit counts are not a contract.
 
-For a non-English target language, **all learner-facing didactic content must be in the target language**. Do not leave English text in visible learning data just because `en_GB` is the structural reference.
+## Learner-facing language
 
-Target-language fields include, without exception:
+For a non-English target, learner-facing didactic fields must be written in that target language:
 
-- Curriculum `title` and `competency_checklist`.
-- Grammar `title`, `category`, `summary`, `explanation`, `structure`, `rules`, examples, and common mistake notes.
-- Vocabulary `topic`, `word`, `definition`, and `example`.
-- Phrasebook `situation`, phrase `text`, and phrase `context`.
-- Assessment `question`, `options`, and reading snippets.
+- curriculum titles and competency checklists;
+- grammar titles, categories, summaries, explanations, structures, rules, examples, and mistakes;
+- vocabulary topics, words, definitions, and examples;
+- phrasebook situations, phrases, and contexts;
+- assessment questions, options, and reading snippets.
 
-English/ASCII is acceptable for code, technical comments, internal identifiers, and cross-language/general constants, such as `id`, `slug`, `grammar_points`, `vocabulary_set_ids`, `unit_ref`, module names, and enum values (`grammar`, `vocabulary`, `reading`, `formal`, `neutral`, `informal`).
+English/ASCII remains appropriate for code, identifiers, slugs, internal enums, module names, and
+cross-language technical constants. Translation/support fields must be explicitly named; missing
+target content must not silently use English.
 
-If a field intentionally stores a translation or learner aid, make that purpose explicit in the data model or field name. Do not use English as a silent fallback for missing didactic content.
+## Backend package
 
-## Activation Rule
+Create one package below `backend/app/data/` following existing naming conventions. It must export:
 
-Do not add a language code to backend `SUPPORTED_TARGET_LANGUAGES` until the backend data package is complete:
+- `CURRICULUM`: A1-C2 units.
+- `GRAMMAR_TOPICS`: grammar reference topics.
+- `VOCABULARY_SETS`: vocabulary sets.
+- `PHRASEBOOK_CATEGORIES`: practical phrase categories.
+- `ASSESSMENT_BANK`: placement questions.
 
-- Curriculum
-- Grammar
-- Vocabulary
-- Phrasebook
-- Assessment bank
+Use per-level modules and assembler modules where the package size warrants it. Assemblers should
+collect data rather than duplicate content or runtime dispatch behavior.
 
-`AVAILABLE_TARGET_LANGUAGES` may contain operator-ready codes, but the backend filters that list through `SUPPORTED_TARGET_LANGUAGES`. A language becomes selectable only when both are true: the code is allowed by backend and present in the operator-visible list.
+## Data integrity
 
-## Canonical Baseline: `en-GB`
+Curriculum units require stable level-scoped IDs, valid CEFR level/unit number, target-language title
+and competencies, grammar slugs, vocabulary-set IDs, lesson types, default weeks, and prerequisite
+links.
 
-Current `en-GB` inventory:
+Every curriculum grammar slug must exist in that language and every related grammar slug must resolve.
+Every vocabulary-set reference must exist, IDs/slugs must be unique within the language, and unit
+references should resolve where provided.
 
-- Curriculum — 48 units: 8 per CEFR level A1-C2
-- Grammar — 135 topics
-- Vocabulary — 96 sets
-- Phrasebook — 28 categories
-- Assessment bank — 119 questions
+Phrasebook register values remain `formal`, `neutral`, or `informal`. Categories should cover practical
+situations across CEFR levels.
 
-These are target ranges, not exact hard requirements. A new language should be comparable in depth and must not ship with placeholder/empty content.
+Assessment questions require stable unique IDs, four unique options, an exact matching correct option,
+valid skill/level metadata, and a same-language grammar slug when present. The bank must provide useful
+coverage across grammar, vocabulary, reading, and CEFR progression without placeholder content.
 
-## Backend Data Package Structure
+## Backend dispatchers
 
-Create `backend/app/data/<iso639>/` using the `en_GB` shape as reference.
+After the package is complete, register it in:
 
-Required files:
+- `backend/app/data/curriculum.py`.
+- `backend/app/data/grammar.py`.
+- `backend/app/data/vocabulary.py`.
+- `backend/app/data/phrasebook.py`.
+- `backend/app/data/assessment_bank.py`.
 
-- `__init__.py` — Package marker
-- `curriculum.py` — Assembles `curriculum_a1.py` ... `curriculum_c2.py`
-- `curriculum_a1.py` ... `curriculum_c2.py` — Per-level curriculum units
-- `grammar.py` — Assembler only; imports grammar modules and exports the flattened topic list
-- `grammar_*` modules — Required; split by CEFR level or topic group, matching the `en_GB` modular pattern
-- `vocabulary.py` — Assembler only; imports `vocabulary_a1.py` ... `vocabulary_c2.py`
-- `vocabulary_a1.py` ... `vocabulary_c2.py` — Per-level vocabulary sets
-- `phrasebook.py` — Assembles `phrasebook_a1.py` ... `phrasebook_c2.py`
-- `phrasebook_a1.py` ... `phrasebook_c2.py` — Per-level phrasebook categories
-- `assessment_bank.py` — Static assessment question list
+Curriculum registration includes both the package mapping and `_I18N` strings used for generated lesson
+and test titles/objectives. Without `_I18N`, plan-facing strings fall back to English.
 
-Required exports:
+Unknown dispatcher input continues to fall back to `en-GB`; supported product flows must ensure the
+new canonical code resolves explicitly so this fallback cannot hide missing registration.
 
-- `CURRICULUM` — `dict[str, list[CurriculumUnit]]`
-- `GRAMMAR_TOPICS` — `list[GrammarTopic]`
-- `VOCABULARY_SETS` — `list[VocabularySet]`
-- `PHRASEBOOK_CATEGORIES` — `list[PhrasebookCategory]`
-- `ASSESSMENT_BANK` — `list[AssessmentQuestion]`
+## Allow-lists and operator configuration
 
-## Curriculum Standard
+Add the canonical BCP-47 code to `SUPPORTED_TARGET_LANGUAGES` only after dispatcher/data completion.
+Add it to default `AVAILABLE_TARGET_LANGUAGES`, `.env.example`, and `.env.dev` only when it should be
+operator-visible by default.
 
-Follow `backend/app/data/en_GB/curriculum.py` and its level modules.
+Selectable frontend options are the intersection of backend-supported, operator-enabled, and frontend
+catalog entries. Frontend metadata alone must not activate a language.
 
-Target shape:
+## Language and prompt metadata
 
-- 6 level modules: A1, A2, B1, B2, C1, C2.
-- 8 units per level.
-- 48 units total.
+Update `language_helpers.py` with:
 
-Each `CurriculumUnit` must include:
+- prompt/display and self names;
+- flag and ISO 639-1 code;
+- script and optional romanization;
+- visible word-spacing behavior;
+- comprehension length unit/guidance;
+- short ISO alias where helper dispatch requires it.
 
-- `id`: stable, level-scoped ID such as `a1-unit-1`.
-- `level`: `A1`, `A2`, `B1`, `B2`, `C1`, or `C2`.
-- `unit_number`: 1-8 within the level.
-- `title`: learner-facing text in the target language; never English for non-English languages.
-- `grammar_points`: internal slugs used by lesson generation and grammar references.
-- `vocabulary_set_ids`: IDs that exist in that language's vocabulary package.
-- `lesson_types`: valid `LessonType` values.
-- `competency_checklist`: learner-facing objectives in the target language; never English for non-English languages.
-- `default_weeks`.
-- `prerequisite_unit`.
+Add the regional/writing-system overlay and aliases in `services/prompts/common.py`. Verify every LLM
+learning surface receives the intended overlay rather than generic English guidance.
 
-`curriculum.py` should:
+Update Reading `_CULTURAL_TOPICS` and aliases when the language needs its own cultural topic pool.
+Verify Listening/Reading length guidance, especially for character-based writing systems.
 
-- Import shared types from `app.data._types` with `# noqa: F401`.
-- Import A1-C2 unit lists.
-- Define `CEFR_LEVELS`.
-- Define `CURRICULUM`.
+## Speech compatibility
 
-Some non-English packages still include legacy `INTENSITY_CONFIG`, `get_curriculum_units`, and `distribute_units` helpers. The runtime uses `backend/app/data/curriculum.py`, but new packages should keep these helpers if matching the existing non-English package pattern is useful for consistency.
+Verify TTS and STT provider support. Kokoro's configured voices are English-only, so a non-English
+target normally requires another TTS provider under the current architecture.
 
-## Grammar Standard
+Add/verify the BCP-47-to-ISO recognition mapping. Resource STT must continue to derive language from an
+owned study plan and must never gain a provider-level English fallback.
 
-Use `en_GB` as the depth reference: about 130+ topics.
+## Frontend metadata and assets
 
-Rules:
+Update `frontend/src/lib/target-languages.ts` with canonical code, localized/self names, ISO code, flag
+path, script, romanization, spacing, and learned-text class.
 
-- Every curriculum `grammar_points` slug must exist as a `GrammarTopic.slug` in that language.
-- Slugs must be unique within the language.
-- `title`, `category`, `summary`, `explanation`, `structure`, `rules`, examples, and mistake notes must be in the target language unless the field intentionally stores a translation.
-- `related` entries must point to existing slugs in the same language.
-- Structure must be split into grammar modules by CEFR level or topic group, matching `en_GB` (`grammar_base.py`, `grammar_extras_*`). `grammar.py` must be an assembler only and export one flattened `GRAMMAR_TOPICS` list.
+Add the flag asset under `frontend/public/flags/`. If the writing system cannot reuse an existing
+capability, also update:
 
-## Vocabulary Standard
+- script/romanization TypeScript unions;
+- font imports/configuration in `frontend/src/app/layout.tsx`;
+- learned-language utility classes in `frontend/src/app/globals.css`;
+- `TargetLanguageText` behavior where needed.
 
-Use `en_GB` as the depth reference: about 95-100 sets.
+Update `targetLanguages` labels/descriptions and landing greetings consistently in all UI locale
+catalogs. UI locale support is independent; adding a learning language does not add a new interface
+locale automatically.
 
-Rules:
+## Required test updates
 
-- Every curriculum `vocabulary_set_ids` entry must exist as a `VocabularySet.id`.
-- IDs must be unique within the language.
-- `level` must be valid CEFR.
-- `topic`, `definition`, and `example` must be in the target language.
-- `unit_ref` should point to the associated curriculum unit.
-- Each set must contain real entries; no empty sets.
-- Use per-level modules (`vocabulary_a1.py` ... `vocabulary_c2.py`) and an assembler-only `vocabulary.py`, matching `en_GB`.
+Backend coverage must include:
 
-## Phrasebook Standard
+- allow-list, add/switch/remove, and curriculum resolution;
+- grammar, vocabulary, phrasebook, and assessment dispatch without English fallback;
+- curriculum/resource cross-reference integrity and uniqueness;
+- language metadata and prompt overlay/aliases;
+- Reading cultural/length behavior where applicable;
+- owned-plan STT mapping to the expected ISO code.
 
-Use `en_GB` as the depth reference: about 28 categories.
+Frontend coverage must include:
 
-Rules:
+- catalog metadata, canonical lookup, script/font classes, and default invariants;
+- selector filtering and flag rendering;
+- language store available/add/switch/remove behavior;
+- language bubbles or other UI derived from the supported-language set;
+- translation-catalog keys and landing greetings.
 
-- Categories should cover practical situations from A1-C2.
-- `situation` must be in the target language.
-- `text` must be a phrase in the target language.
-- `context` must explain when to use it in the target language.
-- `register` must be `formal`, `neutral`, or `informal`.
-- `unit_ref` should point to a related curriculum unit where possible.
-- Prefer per-level modules (`phrasebook_a1.py` ... `phrasebook_c2.py`) and an assembler `phrasebook.py`, matching `en_GB`.
+Search backend and frontend tests for hard-coded supported-language arrays; update every contract that
+intentionally asserts the complete set.
 
-## Assessment Bank Standard
+## Validation workflow
 
-Use `en_GB` as the depth reference: about 120 questions.
+Propose the smallest relevant backend data-integrity/dispatcher tests and frontend catalog/selector
+tests first. Obtain explicit approval before running tests, static checks, formatting, or the full
+pre-push workflow. Do not record run results or test counts in this spec.
 
-Current `en-GB` distribution:
+## Documentation
 
-- Grammar — 47
-- Vocabulary — 47
-- Reading — 25
+Always review and request approval for affected documentation. Normally affected:
 
-Current `en-GB` level distribution:
+- `target-language.instructions.md`.
+- `multi-language.instructions.md`.
+- `learning-resources.instructions.md`.
+- `CHANGELOG.md` for user-visible availability.
 
-- A1 — 24
-- A2 — 24
-- B1 — 24
-- B2 — 17
-- C1 — 16
-- C2 — 14
-
-Rules:
-
-- Every question must have exactly 4 unique options.
-- `correct` must match one option exactly.
-- IDs must be unique and stable.
-- `grammar_slug`, when present, must point to a grammar topic in the same language.
-- Question text, options, and reading snippets should be in the target language.
-- Prefer explicit `AssessmentQuestion(...)` objects, matching `en_GB`, unless there is a strong maintainability reason to use generated data.
-
-## Dispatchers And Allow-Lists
-
-After the data package is complete, update:
-
-- `backend/app/data/curriculum.py`
-- `backend/app/data/grammar.py`
-- `backend/app/data/vocabulary.py`
-- `backend/app/data/phrasebook.py`
-- `backend/app/data/assessment_bank.py`
-- `backend/app/schemas/auth.py` `SUPPORTED_TARGET_LANGUAGES`
-- `backend/app/core/config.py` default `AVAILABLE_TARGET_LANGUAGES`, when the language should be visible by default
-- `.env.example` and `.env.dev`, when operator defaults should include the language
-
-Unknown language fallback remains `en-GB` unless a future strict-resolution feature changes it.
-
-## Frontend And i18n
-
-Update:
-
-- `frontend/src/lib/target-languages.ts`: code, names, flag path, ISO code, script metadata, romanization, word-spacing behaviour, text class.
-- `messages/*.json`: `targetLanguages` names, aliases, descriptions, and landing greetings in all 10 UI locales.
-- CJK or non-Latin languages: ensure learned-language content uses `TargetLanguageText` in UI surfaces.
-
-Selectable frontend options must come from backend-provided available codes. Do not make a language selectable just because it exists in the frontend catalog.
-
-## Prompt And Service Readiness
-
-Update or verify:
-
-- `backend/app/services/language_helpers.py`: display name, ISO-639 code, script, romanization, word-spacing, reading length unit.
-- `backend/app/services/prompts/common.py`: language overlay and ISO alias.
-- Reading/listening length guidance, especially for character-based scripts.
-- TTS/STT provider compatibility. Kokoro is English-only; non-English languages generally require `TTS_PROVIDER=openai`.
-- STT language propagation: add the BCP-47 → ISO mapping and include the language in the parameterized `/api/stt` plan-context test. Never add a provider-level English default for a new language.
-
-## Tests
-
-Add or update tests so the new language cannot silently fall back to English:
-
-- `backend/tests/test_multi_language.py`: allow-list, add-language, curriculum resolution.
-- `backend/tests/test_grammar.py`: grammar endpoint returns language-specific topics.
-- `backend/tests/test_vocabulary.py`: vocabulary endpoint returns language-specific sets.
-- `backend/tests/test_phrasebook.py`: phrasebook endpoint returns language-specific categories.
-- `backend/tests/test_assessment_bank.py`: assessment dispatcher returns a non-empty bank.
-- `backend/tests/test_frontend_data_integrity.py`: grammar slug refs, vocabulary refs, related refs, uniqueness checks.
-- `backend/tests/test_stt.py`: the owned study plan maps the new BCP-47 language to the expected provider ISO code without an English fallback.
-- Prompt tests if language helper or overlay metadata changes.
-
-Minimum targeted validation:
-
-```bash
-python3 -m compileall app/ alembic/ -q
-ruff check app/data/<iso639> app/data/curriculum.py app/data/grammar.py app/data/vocabulary.py app/data/phrasebook.py app/data/assessment_bank.py tests/test_multi_language.py tests/test_grammar.py tests/test_vocabulary.py tests/test_phrasebook.py tests/test_assessment_bank.py tests/test_frontend_data_integrity.py tests/test_stt.py
-pytest tests/test_multi_language.py tests/test_grammar.py tests/test_vocabulary.py tests/test_phrasebook.py tests/test_assessment_bank.py tests/test_frontend_data_integrity.py tests/test_stt.py -q --no-cov
-```
-
-Run the full `pre-push` skill before pushing.
-
-## Documentation Updates
-
-Always ask before updating documentation. State exactly which spec/MD/version files will change and wait for explicit user approval before editing them.
-
-After implementation and validation, update affected docs:
-
-- `CHANGELOG.md`
-- `specs/version.md` for version bumps
-- `specs/architecture-backend.instructions.md`
-- `specs/services.instructions.md`
-- `specs/api-endpoints.instructions.md`
-- `specs/study-plan.instructions.md`
-- `specs/phase-10-multi-language.instructions.md`
-- `specs/testing.instructions.md`
-- `README.md` and `AGENTS.md` if they list current project state or supported languages
-
-Per `AGENTS.md`, a language task is not complete until affected docs are synced or the user explicitly opts out.
+Conditionally update speech, prompts, services, Docker, API, architecture, README, AGENTS, and version
+documents only when their public contracts or project-wide summaries change. Testing documentation
+changes only when testing architecture or policy changes, not merely because language-specific tests
+were added.

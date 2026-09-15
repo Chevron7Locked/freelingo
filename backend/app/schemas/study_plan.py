@@ -1,8 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, field_serializer
+from pydantic import AfterValidator, BaseModel, Field, field_serializer
+
+from app.data.curriculum import CEFR_LEVELS
+
+
+def _known_cefr_level(value: str) -> str:
+    if value not in CEFR_LEVELS:
+        raise ValueError(f"Unknown CEFR level {value!r}: expected one of {', '.join(CEFR_LEVELS)}")
+    return value
+
+
+#: A CEFR level the curriculum actually has units for. An unknown level would
+#: resolve to an empty curriculum and produce a plan with no lessons at all.
+CefrLevel = Annotated[str, AfterValidator(_known_cefr_level)]
 
 
 class StudyPlanGoal(BaseModel):
@@ -10,10 +24,10 @@ class StudyPlanGoal(BaseModel):
 
 
 class GenerateStudyPlanRequest(BaseModel):
-    cefr_level: str
+    cefr_level: CefrLevel
     goals: list[str] = ["grammar", "vocabulary", "reading", "writing"]
-    duration_weeks: int = 12
-    days_per_week: int = 4
+    duration_weeks: int = Field(default=12, ge=1)
+    days_per_week: int = Field(default=4, ge=1)
     weaknesses: list[str] = []
     strengths: list[str] = []
     target_language: str | None = None

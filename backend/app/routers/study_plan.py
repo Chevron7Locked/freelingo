@@ -10,6 +10,7 @@ from app.core.app_logger import get_logger
 from app.core.database import get_db
 from app.core.deps import get_active_study_plan, get_current_user
 from app.core.limiter import limiter
+from app.data.curriculum import get_curriculum_units
 from app.models.lesson import Exercise, Lesson
 from app.models.study_plan import StudyPlan
 from app.models.user import User
@@ -23,7 +24,11 @@ from app.schemas.study_plan import (
     TodayResponse,
 )
 from app.services.lesson_generator import generate_lesson
-from app.services.study_plan_generator import generate_study_plan
+from app.services.study_plan_generator import (
+    PlanCapacityError,
+    assert_plan_capacity,
+    generate_study_plan,
+)
 from app.services.user_language_service import ensure_user_language, get_active_language
 
 logger = get_logger(__name__)
@@ -85,6 +90,15 @@ async def create_study_plan(
             active_lang.target_language if active_lang else current_user.target_language
         )
 
+    # Reject undersized plans before any state changes: ensure_user_language
+    # below creates and flushes a UserLanguage row, and the deactivation loop
+    # would otherwise mark the current plan inactive for a request we refuse.
+    units = get_curriculum_units(data.cefr_level, resolved_language)
+    try:
+        assert_plan_capacity(units, data.duration_weeks, data.days_per_week)
+    except PlanCapacityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     # Ensure a UserLanguage row exists for this language (creates one inactive if missing)
     user_lang = await ensure_user_language(db, current_user.id, resolved_language)
 
@@ -100,9 +114,6 @@ async def create_study_plan(
 
     generated = await generate_study_plan(data, target_language=resolved_language)
 
-    from app.data.curriculum import get_curriculum_units  # noqa: PLC0415
-
-    units = get_curriculum_units(data.cefr_level, resolved_language)
     first_unit_id = units[0].id if units else ""
 
     plan_dict = generated.model_dump() if hasattr(generated, "model_dump") else generated
@@ -251,8 +262,6 @@ async def get_today_lessons(
         grammar_points: list[str] = []
         vocabulary_set_ids: list[str] = []
         if d_unit_id:
-            from app.data.curriculum import get_curriculum_units  # noqa: PLC0415
-
             for cu in get_curriculum_units(plan.cefr_level, plan.target_language):
                 if cu.id == d_unit_id:
                     grammar_points = cu.grammar_points

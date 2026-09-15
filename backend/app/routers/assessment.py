@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_redis
 from app.core.limiter import limiter
+from app.data.curriculum import get_curriculum_units
 from app.models.study_plan import StudyPlan
 from app.models.user import User
 from app.models.user_language import UserLanguage
@@ -47,7 +48,11 @@ from app.services.prompts.assessment import (
     build_legacy_assessment_quiz_prompt,
 )
 from app.services.prompts.common import get_language_prompt_overlay
-from app.services.study_plan_generator import generate_study_plan
+from app.services.study_plan_generator import (
+    PlanCapacityError,
+    assert_plan_capacity,
+    generate_study_plan,
+)
 from app.services.user_language_service import ensure_user_language
 
 router = APIRouter(prefix="/api/assessment", tags=["assessment"])
@@ -412,6 +417,15 @@ async def complete_assessment(
         # The session's target_language is the most authoritative source when present
         target_language = session.get("target_language", target_language)
 
+    # Reject undersized plans before any state changes: ensure_user_language
+    # below creates and flushes a UserLanguage row, and the deactivation loop
+    # would otherwise mark the current plan inactive for a request we refuse.
+    units = get_curriculum_units(data.cefr_level, target_language)
+    try:
+        assert_plan_capacity(units, data.duration_weeks, data.days_per_week)
+    except PlanCapacityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     # Ensure a UserLanguage row exists for this language
     user_lang = await ensure_user_language(db, current_user_id, target_language)
 
@@ -437,9 +451,6 @@ async def complete_assessment(
     generated = await generate_study_plan(plan_request, target_language=target_language)
     plan_dict = generated.model_dump()
 
-    from app.data.curriculum import get_curriculum_units  # noqa: PLC0415
-
-    units = get_curriculum_units(data.cefr_level, target_language)
     first_unit_id = units[0].id if units else ""
 
     plan = StudyPlan(
@@ -550,8 +561,6 @@ async def get_level_test_questions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Study plan not found.")
 
     # Collect all grammar points and vocabulary sets from the curriculum
-    from app.data.curriculum import get_curriculum_units  # noqa: PLC0415
-
     units = get_curriculum_units(plan.cefr_level, plan.target_language)
     grammar_points: list[str] = []
     vocab_sets: list[str] = []

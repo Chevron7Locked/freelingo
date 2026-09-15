@@ -5,8 +5,7 @@ applyTo: "backend/app/routers/study_plan.py, backend/app/routers/lessons.py, bac
 
 # Study Plan & Lesson System — FreeLingo
 
-> Phase specs (`phase-1-platform.instructions.md`, etc.) document the **history** of how features were built.  
-> This file is the **authoritative current-state reference** for the plan and lesson domain.
+> This file is the authoritative current-state reference for the plan and lesson domain.
 
 ---
 
@@ -28,23 +27,29 @@ FreeLingo's learning loop works as follows:
 
 ### `StudyPlan` (`study_plans` table)
 
-One active plan per user. See `backend/app/models/study_plan.py`.
+One active plan per user language. See `backend/app/models/study_plan.py` and
+`multi-language.instructions.md`.
 
 - id — Type: integer; Notes: Primary key
 - user_id — Type: integer; Notes: FK → users
+- user_language_id — Type: integer; Notes: Required FK → user_languages; identifies the language owner
 - cefr_level — Type: string; Notes: A1–C2
-- target_language — Type: string; Notes: BCP-47 tag copied from user at creation
+- target_language — Type: string; Notes: BCP-47 tag persisted from the owning user language
 - goals — Type: JSON; Notes: `["grammar", "vocabulary", ...]`
 - duration_weeks — Type: integer; Notes: 4 / 8 / 12 / 16
 - days_per_week — Type: integer; Notes: 5 / 5 / 4 / 3 (derived from intensity)
 - current_unit — Type: string; Notes: Curriculum unit ID of the last active unit
 - **progress_day** — Type: **integer**; Notes: **0-indexed count of completed days (see below). Default 0.**
 - generated_plan — Type: JSON; Notes: Full week/day grid (see Plan JSON structure)
-- is_active — Type: boolean; Notes: True for the current plan; old plans are deactivated on re-generate
+- is_active — Type: boolean; Notes: True for the current plan in this language; regeneration deactivates only the previous plan for the same user language
 - completion_test_taken — Type: boolean; Notes: Whether end-of-level test has been taken
 - completion_test_score — Type: float (nullable); Notes: 0.0 – 1.0
 - completion_test_recommendation — Type: string (nullable); Notes: `"advance"` / `"extend"` / `"repeat"`
 - created_at — Type: datetime; Notes: Auto-set
+
+The partial unique index `uq_active_plan_per_lang` on `user_language_id` where `is_active = true`
+prevents more than one active plan for the same user language. Plans for other languages remain
+independent.
 
 **`progress_day` semantics**
 

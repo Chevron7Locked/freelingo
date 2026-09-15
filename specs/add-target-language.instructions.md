@@ -244,7 +244,7 @@ After implementation and validation, update affected docs:
 - `specs/services.instructions.md`
 - `specs/api-endpoints.instructions.md`
 - `specs/study-plan.instructions.md`
-- `specs/phase-10-multi-language.instructions.md`
+- `specs/multi-language.instructions.md`
 - `specs/testing.instructions.md`
 - `README.md` and `AGENTS.md` if they list current project state or supported languages
 

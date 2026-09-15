@@ -1,8 +1,10 @@
 ---
-description: "Functional specification for FreeLingo Phase 12: Family Plan. Defines the roles, flows, access rules, and product lifecycle without implementation details."
+description: "Future functional specification for the not-yet-implemented FreeLingo Family Plan. Defines roles, flows, access rules, and product lifecycle without implementation details."
 ---
 
-# Phase 12: Family Plan
+# Family Plan
+
+> Status: future specification; this feature is not implemented.
 
 > **Status: Planned.** This functionality has not been developed or implemented yet.
 

@@ -39,6 +39,7 @@
   --color-fl-error-dim: var(--fl-error-dim);
   --color-fl-error-hover: var(--fl-error-hover);
   --color-fl-success: var(--fl-success);
+  --color-fl-warning: var(--fl-warning);
   /* FreeLingo accent tokens */
   --color-fl-accent: var(--fl-accent);
   --color-fl-accent-fg: var(--fl-accent-fg);
@@ -96,6 +97,7 @@
   --fl-error-dim: #cc6666;
   --fl-error-hover: #ff5555;
   --fl-success: #4ade80;
+  --fl-warning: #fbbf24;
   --fl-accent: #75b7c5;
   --fl-accent-fg: #0a0a0a;
   /* shadcn tokens */
@@ -223,6 +225,7 @@ html[data-theme='light'] {
   --fl-error-dim: #994444;
   --fl-error-hover: #c02020;
   --fl-success: #15803d;
+  --fl-warning: #92400e;
   --fl-accent: #286779;
   --fl-accent-fg: #ffffff;
   /* shadcn token overrides (light) */

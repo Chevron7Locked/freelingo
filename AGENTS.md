@@ -1,6 +1,6 @@
 # AGENTS.md — FreeLingo
 
-**Current version: 1.9.5**
+**Current version: 1.9.10**
 
 ## Project overview
 
@@ -18,6 +18,7 @@
 - Geist Sans is the default interface, heading, and Latin-script learning font. The legacy `font-mono` interface alias also resolves to Geist Sans; new interface text should use `font-sans`, while branding, versions, and technical text use the explicit Geist Mono `font-code` token.
 - Learned-language text uses `TargetLanguageText`: Latin content defaults to 16px with relaxed spacing, CJK retains Noto Sans and loose spacing, and optional reading/translation lines use 14px. Selected long copy is capped at 70ch, auxiliary learning text has stronger contrast, and global compact size tokens remain unchanged.
 - The `docs/` website self-hosts its licensed Latin Geist Sans font; email bodies use Arial/Helvetica at 14px with monospaced wordmarks.
+- Free-write annotations and correction lists share `fl-error-fg`/`fl-success`, with 16px learning text and 14px explanations. Partial answers use `fl-warning` (`#fbbf24` dark / `#92400e` light) for the labelled icon and translucent border.
 
 ### Learning resources and progress
 
@@ -25,6 +26,7 @@
 - Active Reading and Listening exercises, lesson exercise questions, and voice-conversation transcript tutor turns let users select and save one word from their text through the shared flashcard lookup flow; answer options are not selectable vocabulary surfaces.
 - My Plan unit drawers offer Start for the current lesson, Resume for skipped pending lessons, and read-only Review for completed lessons without awarding progress again. Drawer actions share the solid primary button treatment used by the plan overview.
 - Lesson completion locks the lesson row, commits completion/progress/competencies atomically, returns completed retries before checking freemium quota, and refreshes frontend quota after success.
+- Free-write evaluations persist usable correction pairs on the exercise and expose them after submission, reload, and review. Inline matching considers exact, case-insensitive, and trimmed occurrences without shifting Unicode offsets; whole words precede subwords, then exact/as-is matches precede fallbacks, with one non-overlapping span per correction. Unmatched corrections remain in the list. Partial styling requires corrections and `0 < score < 1`; unavailable evaluations retain the existing fallback state.
 - Every lesson type used by the static curricula has an explicit generation policy. Mainland Chinese B2-C2 `speaking` lessons use oral-production guidance and a 30% grammar-exercise minimum instead of the generic 70% fallback.
 - Generated flashcards derive their target language from the active persisted plan rather than client state, and reviews credit progress to the persisted card plan rather than whichever language is currently active.
 

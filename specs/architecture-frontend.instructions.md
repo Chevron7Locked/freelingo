@@ -105,6 +105,7 @@ frontend/
 │   │   ├── billing-copy.ts      # Billing CTA copy helpers and shared BillingInterval type
 │   │   ├── conversation-vad.ts  # End-of-turn silence window for voice conversation (user setting + CEFR fallback)
 │   │   ├── conversation-ws.ts   # WebSocket client for voice conversation
+│   │   ├── free-write-corrections.ts # Non-overlapping inline correction matching
 │   │   ├── landing-subscription.ts # Shared landing subscription-status check
 │   │   ├── locales.ts           # Locale utilities for next-intl
 │   │   ├── mappers.ts           # Data transformation / mapping utilities
@@ -118,7 +119,7 @@ frontend/
 │   │
 │   └── middleware.ts            # Auth guard (redirect to /login) + locale detection
 │
-├── tests/                       # Vitest suite (50 files, 494 passed; includes 13 ConversationMode cases)
+├── tests/                       # Vitest suite (52 files, 517 passed; includes 13 ConversationMode cases)
 │   ├── setup.ts                 # Global mocks: localStorage, next/navigation, next-intl
 │   ├── middleware.test.ts
 │   ├── components/
@@ -183,6 +184,9 @@ frontend/
 - Dashboard next-step and highlighted lesson actions, the `UnitCard` Start action, and lesson/Reading/Listening submission buttons use solid monochrome `bg-fl-fg text-fl-bg` styling with `hover:bg-fl-fg/90` and visible keyboard-focus outlines. Existing submission and disabled-state conditions are unchanged.
 - Dashboard plan, vocabulary, and skill bars, `UnitCard` progress, and lesson exercise progress use rectangular 4px tracks (`h-1`) with `h-full` fills. Width changes transition over 300ms using `transition-[width]`; `motion-reduce:transition-none` disables these transitions for reduced-motion preferences. Progress calculations and ordinary separators are unchanged.
 - Lesson, Reading, and Listening answer feedback uses theme-aware `fl-success` and `fl-error-fg` colors, including translucent borders and option/result backgrounds. `fl-success` is `#4ade80` in dark mode and `#15803d` in light mode. Incorrect comprehension answers remain struck through without reduced text opacity.
+- Free-write answers use `fl-warning` (`#fbbf24` dark / `#92400e` light) for the partial-state icon and a 50%-opacity border only when usable corrections exist and `0 < score < 1`. The Lucide `Diff` icon has a localized corrections label; correct/incorrect states retain `Check`/`X`. The unavailable-evaluation fallback remains incorrect-styled.
+- Evaluated free-write answers render matched fragments with `del`/`ins`, using `fl-error-fg`/`fl-success` in both the annotated answer and the always-visible corrections list. Original/corrected text uses the language helper's 16px font and spacing; explanations use 14px. Persisted corrections render identically after reload and in completed-lesson review.
+- `free-write-corrections.ts` collects exact, case-insensitive, and trimmed matches against the original answer, preserving Unicode offsets and deduplicating ranges. Whole words take precedence over subwords, then exact/as-is matches over fallbacks; ties use answer order and longer same-start fragments. Each correction consumes at most one non-overlapping range, while unplaced corrections remain available in the list.
 - Unit metadata and exercise-page headers can wrap to accommodate narrow screens and longer localized labels.
 - The dashboard places the existing completed/total lesson counter beside the next-step action, labels it as the goal for the current plan day, and hides it when no plan or lesson slots are available. It is not a calendar-day target, and the lesson list does not duplicate the counter. When no next lesson is available, neutral copy invites users to consult their plan rather than assuming every slot is complete.
 - `UnitCard` labels the active curriculum unit explicitly, excluding the final level-test pseudo-unit. Pending lessons appear below the unit list with neutral styling and reassurance that they can be resumed later; all existing Resume actions remain available.
@@ -300,7 +304,6 @@ Seven Zustand stores hold all client-side state. No React Context is used for gl
 - `StatusIndicator` uses higher-contrast `text-fl-fg`, semibold 12px labels, and tighter `tracking-wide` spacing without changing status precedence or pulse conditions.
 - `TranscriptBubble` keeps idle avatar halos static and animates them only while speaking. Local `motion-reduce` utilities disable halo animation, border/opacity transitions, and the streaming cursor pulse; there is no global motion-policy change.
 - Transcript role labels identify the assistant as Lingu in all ten UI locales. Session lifecycle, turn handling, audio playback, and conversation flow are unchanged by these visual adjustments.
-- What's New v1.9.5 preserves all four existing entries in all ten locales: the visual-identity highlight as `entry1`, the readability highlights as `entry2`/`entry3`, and the general bug-fix highlight as `entry4`. Only `WHATS_NEW_VERSION` and the localized version labels advance to `v1.9.5`. The existing version-aware dismissal logic now uses `fl_whats_new_seen_v1.9.5`, so users who completed onboarding and have not dismissed this version see the modal on their next dashboard visit.
 
 ### App shell notifications
 
@@ -450,7 +453,7 @@ The pending-turn guard is set synchronously before WAV encoding/sending and on `
 
 Recoverable `stt_failed`, `llm_failed`, and `tts_failed` messages release the turn guard, cancel playback, clear assistant speaking/streaming state, and keep the session live with a visible error. The next successful WAV send clears that error. Other server errors and transport/startup failures finalize the session. `onVADMisfire` clears the speech-start timestamp and user-speaking indicator, discarding the unfinished segment.
 
-`tests/components/ConversationMode.test.tsx` has 13 lifecycle cases passed in the confirmed pre-push run (6.58 s), included in the 494 passed across 50 files. These tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending.
+`tests/components/ConversationMode.test.tsx` has 13 lifecycle cases, included in the 517 passing tests across 52 files. These tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending.
 
 ## Tests
 
@@ -459,7 +462,8 @@ Testing infrastructure and strategy are documented in [testing.instructions.md](
 **Summary:**
 
 - **Framework**: Vitest with jsdom environment
-- **Test files**: 30 (plus setup.ts) covering critical logic only
+- **Test files**: 52 (plus setup.ts), with 517 passing tests
 - **Setup**: Global mocks for `localStorage`, `next/navigation`, `next-intl`
 - **Coverage areas**: API fetch interceptor, auth store, audio queue, conversation WebSocket, target language utilities, mapper functions, middleware, component rendering
+- **Free-write coverage**: 19 matching cases cover repeated/mixed-case fragments, word/subword priority, trimmed fallbacks, literal punctuation, overlaps, and Unicode offsets; 4 lesson-page cases cover submission, review, corrections styling, and fallback states.
 - **Coverage**: Not configured/reported (`@vitest/coverage-v8` is not installed)

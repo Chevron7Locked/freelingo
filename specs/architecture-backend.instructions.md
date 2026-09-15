@@ -144,7 +144,7 @@ backend/
 │
 ├── requirements.txt             # Exact direct dependencies; loads constraints.txt
 ├── constraints.txt              # Exact indirect dependency versions
-└── tests/                       # pytest suite (45 test files, 1019 tests)
+└── tests/                       # pytest suite (45 test files, 1023 tests)
 ```
 
 ## Runtime and dependency installation
@@ -218,6 +218,10 @@ For complete service details, APIs, and implementation notes, see [services.inst
 
 ---
 
+## Free-write corrections
+
+Free-write evaluations validate `FreeWriteCorrection` objects through `FreeWriteEvaluation`, discarding entries without nonblank original/corrected text. The answer endpoint persists the surviving pairs in nullable JSON `Exercise.corrections` and returns them in both answer and lesson-detail responses. Migration `0052_exercise_corrections` follows `0051_conversation_speech_pause`; historical exercises retain `NULL` corrections.
+
 ## Tests
 
 Testing infrastructure and strategy are documented in [testing.instructions.md](testing.instructions.md).
@@ -226,8 +230,8 @@ Testing infrastructure and strategy are documented in [testing.instructions.md](
 
 - **Framework**: pytest + pytest-asyncio + httpx AsyncClient
 - **Test files**: 45 (plus conftest.py for shared fixtures)
-- **Tests**: 1019
-- **Coverage**: 85.56% last measured (target: ≥70%)
+- **Tests**: 1023
+- **Coverage**: 85.58% last measured (target: ≥70%)
 - **Key fixtures**: async database session, test client with auth headers, Redis mock, user_language fixture
 
 ---

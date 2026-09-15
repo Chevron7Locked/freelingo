@@ -650,6 +650,7 @@
     "correct": "Richtig",
     "incorrect": "Falsch",
     "feedback": "Feedback",
+    "corrections": "Korrekturen",
     "completeLesson": "Lektion abschließen",
     "completing": "Wird abgeschlossen...",
     "relatedGrammar": "Verwandte Grammatik",
@@ -1462,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Neuigkeiten",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Verstanden",
     "entry1": {
       "label": "Ein Stil, der zu uns passt",

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLocale, useTranslations } from 'next-intl'
-import { Check, X } from 'lucide-react'
+import { Check, Diff, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { useProgressStore } from '@/store/progress'
 import { useLanguageStore } from '@/store/language'
@@ -27,6 +27,10 @@ import {
 import { shouldShowUnitReviewPrompt } from '@/lib/review-prompt-triggers'
 import { cn } from '@/lib/utils'
 import {
+  annotateAnswer,
+  type FreeWriteCorrection,
+} from '@/lib/free-write-corrections'
+import {
   formatLanguageName,
   getTargetLanguageTextClass,
 } from '@/lib/target-languages'
@@ -42,6 +46,7 @@ interface ExerciseItem {
   user_answer: string | null
   score: number | null
   feedback: string | null
+  corrections: FreeWriteCorrection[] | null
   native_hint: string | null
 }
 
@@ -331,6 +336,7 @@ export default function LessonPage() {
           ...copy[currentExercise],
           score: result.score,
           feedback: result.feedback,
+          corrections: result.corrections ?? null,
           user_answer: finalAnswer,
         }
         return copy
@@ -526,6 +532,25 @@ export default function LessonPage() {
   const exercise = exercises[currentExercise]
   const isEvaluated = exercise?.score !== null
   const isAnswerCorrect = (exercise?.score ?? 0) >= 1
+  const exerciseCorrections = (exercise?.corrections ?? []).filter(
+    (c) => c.original && c.corrected
+  )
+  // Amber only when the evaluator returned corrections with a partial score.
+  // The LLM-unavailable fallback (score 0.5, no corrections) stays red/✕.
+  const isPartiallyCorrect =
+    exercise?.exercise_type === 'free_write' &&
+    isEvaluated &&
+    !isAnswerCorrect &&
+    (exercise?.score ?? 0) > 0 &&
+    exerciseCorrections.length > 0
+  const answerSegments =
+    exercise?.exercise_type === 'free_write' &&
+    isEvaluated &&
+    exercise?.user_answer &&
+    exerciseCorrections.length > 0
+      ? annotateAnswer(exercise.user_answer, exerciseCorrections)
+      : null
+  const showAnnotatedAnswer = !!answerSegments?.some((s) => s.type === 'fix')
   const isNativeHintOpen = exercise ? openNativeHintIds.has(exercise.id) : false
   const hasMultipleChoiceOptions =
     exercise?.exercise_type === 'multiple_choice' &&
@@ -993,33 +1018,74 @@ export default function LessonPage() {
                 </div>
               ) : (
                 <div className="relative">
-                  <textarea
-                    className={cn(
-                      getTargetLanguageTextClass(targetLanguageCode),
-                      'bg-fl-bg border-fl-border text-fl-fg placeholder:text-fl-muted-4 focus:border-fl-border-2 min-h-[90px] w-full resize-y border px-4 py-3 transition-colors focus:outline-none disabled:opacity-100',
-                      isEvaluated && 'pr-10',
-                      isEvaluated &&
-                        (isAnswerCorrect
+                  {showAnnotatedAnswer && answerSegments ? (
+                    <div
+                      className={cn(
+                        getTargetLanguageTextClass(targetLanguageCode),
+                        'bg-fl-bg text-fl-fg min-h-[90px] w-full border px-4 py-3 pr-10 whitespace-pre-wrap',
+                        isAnswerCorrect
                           ? 'border-fl-success/50'
-                          : 'border-fl-error-fg/50')
-                    )}
-                    placeholder={t('yourAnswer')}
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    disabled={isEvaluated || isReview}
-                  />
+                          : isPartiallyCorrect
+                            ? 'border-fl-warning/50'
+                            : 'border-fl-error-fg/50'
+                      )}
+                    >
+                      {answerSegments.map((segment, index) =>
+                        segment.type === 'plain' ? (
+                          <span key={index}>{segment.text}</span>
+                        ) : (
+                          <span key={index}>
+                            <del className="text-fl-error-fg decoration-fl-error-fg/70 line-through">
+                              {segment.original}
+                            </del>{' '}
+                            <ins className="text-fl-success decoration-fl-success/70 font-semibold">
+                              {segment.corrected}
+                            </ins>
+                          </span>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    <textarea
+                      className={cn(
+                        getTargetLanguageTextClass(targetLanguageCode),
+                        'bg-fl-bg border-fl-border text-fl-fg placeholder:text-fl-muted-4 focus:border-fl-border-2 min-h-[90px] w-full resize-y border px-4 py-3 transition-colors focus:outline-none disabled:opacity-100',
+                        isEvaluated && 'pr-10',
+                        isEvaluated &&
+                          (isAnswerCorrect
+                            ? 'border-fl-success/50'
+                            : isPartiallyCorrect
+                              ? 'border-fl-warning/50'
+                              : 'border-fl-error-fg/50')
+                      )}
+                      placeholder={t('yourAnswer')}
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      disabled={isEvaluated || isReview}
+                    />
+                  )}
                   {isEvaluated && (
                     <span
                       role="img"
                       aria-label={
-                        isAnswerCorrect ? t('correct') : t('incorrect')
+                        isAnswerCorrect
+                          ? t('correct')
+                          : isPartiallyCorrect
+                            ? t('corrections')
+                            : t('incorrect')
                       }
                       className={`absolute top-3 right-3 ${
-                        isAnswerCorrect ? 'text-fl-success' : 'text-fl-error-fg'
+                        isAnswerCorrect
+                          ? 'text-fl-success'
+                          : isPartiallyCorrect
+                            ? 'text-fl-warning'
+                            : 'text-fl-error-fg'
                       }`}
                     >
                       {isAnswerCorrect ? (
                         <Check className="size-4" aria-hidden="true" />
+                      ) : isPartiallyCorrect ? (
+                        <Diff className="size-4" aria-hidden="true" />
                       ) : (
                         <X className="size-4" aria-hidden="true" />
                       )}
@@ -1059,6 +1125,37 @@ export default function LessonPage() {
                       >
                         {exercise.feedback}
                       </TargetLanguageText>
+                    </div>
+                  )}
+                  {exerciseCorrections.length > 0 && (
+                    <div className="border-fl-border border px-4 py-4">
+                      <p className="text-fl-label text-fl-muted-2 mb-2 font-mono tracking-widest uppercase">
+                        {t('corrections')}
+                      </p>
+                      <ul className="space-y-3">
+                        {exerciseCorrections.map((correction, index) => (
+                          <li key={index}>
+                            <p
+                              className={getTargetLanguageTextClass(
+                                targetLanguageCode
+                              )}
+                            >
+                              <del className="text-fl-error-fg decoration-fl-error-fg/70 line-through">
+                                {correction.original}
+                              </del>
+                              <span className="text-fl-muted-3"> → </span>
+                              <ins className="text-fl-success decoration-fl-success/70 font-semibold">
+                                {correction.corrected}
+                              </ins>
+                            </p>
+                            {correction.explanation && (
+                              <p className="text-fl-muted-2 mt-1 text-sm">
+                                {correction.explanation}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                   {exercise.explanation && (

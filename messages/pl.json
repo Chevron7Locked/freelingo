@@ -650,6 +650,7 @@
     "correct": "Poprawnie",
     "incorrect": "Niepoprawnie",
     "feedback": "Informacja zwrotna",
+    "corrections": "Poprawki",
     "completeLesson": "Ukończ lekcję",
     "completing": "Kończenie...",
     "relatedGrammar": "Powiązana gramatyka",
@@ -1462,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Co nowego",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Rozumiem",
     "entry1": {
       "label": "Styl z własnym charakterem",

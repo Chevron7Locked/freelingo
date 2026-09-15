@@ -27,7 +27,7 @@ freelingo/
 │   │       └── pt/              # Portuguese curriculum (A1–C2)
 │   ├── alembic/
 │   │   └── versions/            # DB migrations (50)
-│   └── tests/                   # pytest suite (45 test files, 1019 tests)
+│   └── tests/                   # pytest suite (45 test files, 1023 tests)
 │
 ├── frontend/                    # Next.js 16 App Router
 │   ├── src/
@@ -63,7 +63,7 @@ freelingo/
 │   │   ├── lib/                 # Shared API, media, locale, mapping, review, billing, and language utilities (11)
 │   │   ├── i18n/                # next-intl locale resolver
 │   │   └── middleware.ts        # Auth guard + locale detection
-│   ├── tests/                   # Vitest suite (50 files, 494 passed; includes 13 ConversationMode cases)
+│   ├── tests/                   # Vitest suite (52 files, 517 passed; includes 13 ConversationMode cases)
 │   ├── public/                  # Static assets (flags/, vad/ WASM models)
 │   └── scripts/                 # Postinstall helpers (copy-vad-models.js)
 │
@@ -185,6 +185,6 @@ Testing infrastructure and strategy are documented in [testing.instructions.md](
 
 **Summary:**
 
-- **Backend**: pytest + pytest-asyncio, 45 test files, 1019 tests, 85.56% last measured coverage (target: 70%)
-- **Frontend**: Confirmed pre-push Vitest result of 494 passed across 50 test files, including all 13 `ConversationMode` lifecycle cases (6.58 s). These lifecycle tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending. Existing areas include stores, components, hooks, lib, i18n, app pages, the static landing preview and session-aware CTAs, accessible plan-state indicators, Stripe-aware admin subscription visibility, dashboard announcements, billing paywall UI, billing success verification, feedback unread labels, SSE parsing, memory toasts, chat stream resets, and middleware; coverage is not configured/reported
+- **Backend**: pytest + pytest-asyncio, 45 test files, 1023 tests, 85.58% last measured coverage (target: 70%), including free-write correction validation and persistence.
+- **Frontend**: 517 passing tests across 52 files, including all 13 `ConversationMode` lifecycle cases and 23 free-write matching/page cases. These lifecycle tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending. Existing areas include stores, components, hooks, lib, i18n, app pages, the static landing preview and session-aware CTAs, accessible plan-state indicators, Stripe-aware admin subscription visibility, dashboard announcements, billing paywall UI, billing success verification, feedback unread labels, SSE parsing, memory toasts, chat stream resets, and middleware; coverage is not configured/reported.
 - **E2E**: Playwright (planned, not yet implemented)

@@ -650,6 +650,7 @@
     "correct": "Corect",
     "incorrect": "Incorect",
     "feedback": "Feedback",
+    "corrections": "Corectări",
     "completeLesson": "Finalizează lecția",
     "completing": "Se finalizează...",
     "relatedGrammar": "Gramatică conexă",
@@ -1462,7 +1463,7 @@
   },
   "whatsNew": {
     "title": "Noutăți",
-    "version": "v1.9.5",
+    "version": "v1.9.10",
     "cta": "Am înțeles",
     "entry1": {
       "label": "Un stil care ne reprezintă",

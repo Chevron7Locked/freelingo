@@ -1,405 +1,169 @@
 ---
-description: "Current-state reference for FreeLingo's study plan and lesson system: data model, plan generation, lesson lifecycle, progress tracking, auto-advance logic, skip day, and pending lessons. This is the authoritative description of how the system works today."
-applyTo: "backend/app/routers/study_plan.py, backend/app/routers/lessons.py, backend/app/models/study_plan.py, backend/app/models/lesson.py, backend/app/services/study_plan_generator.py, backend/app/services/lesson_generator.py, frontend/src/app/(app)/dashboard/**, frontend/src/app/(app)/lesson/**"
+description: "Current study-plan grid, language ownership, lazy lesson generation, day progression, skip/pending behavior, lesson lifecycle, progress, and frontend integration."
+applyTo: "backend/app/{data/curriculum.py,models/{study_plan,lesson}.py,schemas/{study_plan,assessment,lessons}.py,routers/{study_plan,lessons,assessment}.py,services/{study_plan_generator,lesson_generator,progress_service}.py}, frontend/src/app/(app)/{dashboard,plan,lesson}/**, frontend/src/components/{plan,assessment}/**"
 ---
 
-# Study Plan & Lesson System — FreeLingo
+# Study Plan and Lessons
 
-> This file is the authoritative current-state reference for the plan and lesson domain.
+## Core model
 
----
+Each target-language track can have one active `StudyPlan`. The owning `UserLanguage` and persisted
+`StudyPlan.target_language` determine isolation; switching the active client language does not reassign
+existing resources.
 
-## Overview
+Assessment completion normally creates the plan. `POST /api/study-plan/generate` remains available as
+an explicit plan-generation endpoint.
 
-FreeLingo's learning loop works as follows:
+The plan stores a deterministic week/day grid in `generated_plan`; lesson content is generated lazily
+and persisted when the current day is requested.
 
-1. User completes the CEFR assessment → `POST /api/assessment/complete` creates a `StudyPlan`.
-2. The plan is a **deterministic week/day grid** derived from the static curriculum — no LLM at generation time.
-3. Each day in the plan has one or more **lesson slots** (defined in `generated_plan`, stored as JSON).
-4. When the user opens a day for the first time, lesson content is **generated on-demand by the LLM** and persisted to the DB.
-5. The user's position in the plan is tracked by a single integer: `progress_day`.
-6. Progress advances automatically when all lessons for the current day are marked complete, or manually via "skip day".
-7. When completing a lesson moves the user into a different curriculum unit, the frontend may show the reusable review prompt, subject to duplicate-review checks and local dismissal cooldown.
+## Plan fields and constraints
 
----
+Important persisted fields are:
 
-## Data model
+- `user_id` and required `user_language_id` ownership.
+- `cefr_level` and denormalized `target_language`.
+- goals, `duration_weeks`, and `days_per_week`.
+- `progress_day`, the zero-based count of completed/passed plan days.
+- `generated_plan`, the complete scheduled grid.
+- `is_active` and completion-test result fields.
+- `current_unit`, initialized to the first curriculum unit.
 
-### `StudyPlan` (`study_plans` table)
+The partial unique index on `user_language_id` where `is_active=true` enforces one active plan per
+language track.
 
-One active plan per user language. See `backend/app/models/study_plan.py` and
-`multi-language.instructions.md`.
+The UI offers duration presets 4, 8, 12, and 16 weeks and derives 5, 5, 4, and 3 days per week. Current
+request schemas accept integers and do not enforce those closed sets.
 
-- id — Type: integer; Notes: Primary key
-- user_id — Type: integer; Notes: FK → users
-- user_language_id — Type: integer; Notes: Required FK → user_languages; identifies the language owner
-- cefr_level — Type: string; Notes: A1–C2
-- target_language — Type: string; Notes: BCP-47 tag persisted from the owning user language
-- goals — Type: JSON; Notes: `["grammar", "vocabulary", ...]`
-- duration_weeks — Type: integer; Notes: 4 / 8 / 12 / 16
-- days_per_week — Type: integer; Notes: 5 / 5 / 4 / 3 (derived from intensity)
-- current_unit — Type: string; Notes: Curriculum unit ID of the last active unit
-- **progress_day** — Type: **integer**; Notes: **0-indexed count of completed days (see below). Default 0.**
-- generated_plan — Type: JSON; Notes: Full week/day grid (see Plan JSON structure)
-- is_active — Type: boolean; Notes: True for the current plan in this language; regeneration deactivates only the previous plan for the same user language
-- completion_test_taken — Type: boolean; Notes: Whether end-of-level test has been taken
-- completion_test_score — Type: float (nullable); Notes: 0.0 – 1.0
-- completion_test_recommendation — Type: string (nullable); Notes: `"advance"` / `"extend"` / `"repeat"`
-- created_at — Type: datetime; Notes: Auto-set
+`current_unit` is not advanced by current production flows and normally remains the first unit for the
+life of a plan. Frontend uses it for active-unit presentation, so it must not be treated as reliable
+progress-derived state elsewhere.
 
-The partial unique index `uq_active_plan_per_lang` on `user_language_id` where `is_active = true`
-prevents more than one active plan for the same user language. Plans for other languages remain
-independent.
+## Deterministic generation
 
-**`progress_day` semantics**
+`study_plan_generator.py` loads the selected language/level curriculum and traverses each unit's
+declared `lesson_types`. It distributes one lesson slot per plan day and reserves the final slot for
+the end-of-level test. It does not call an LLM.
 
-`progress_day` is a **0-indexed integer** representing the number of days the user has completed.
+Each slot contains week/day, type, localized title/objectives, estimated duration, unit ID, grammar
+slugs, and vocabulary-set IDs. The generated grid is the source of scheduled future slots.
 
-- `progress_day = 0` → user is on day 1 (no days complete yet).
-- `progress_day = N` → N days complete; user is currently working on the day at absolute index N.
-- `total_days = duration_weeks × days_per_week` → when `progress_day >= total_days` the plan is finished.
+## `progress_day`
 
-Mapping to week/day numbers:
+`progress_day=N` means N plan days have been completed or passed and the current absolute day index is
+N. With `days_per_week`:
 
-```
-current_week = (progress_day // days_per_week) + 1
-current_day  = (progress_day %  days_per_week) + 1
+```text
+week = (progress_day // days_per_week) + 1
+day  = (progress_day % days_per_week) + 1
+total_days = duration_weeks * days_per_week
 ```
 
-Example (`days_per_week=4`):
+The plan is exhausted when `progress_day >= total_days`.
 
-- 0 — current_week: 1; current_day: 1
-- 3 — current_week: 1; current_day: 4
-- 4 — current_week: 2; current_day: 1
-- 47 — current_week: 12; current_day: 4
-- 48 — current_week: — plan complete —; current_day: —
+## Lazy lesson generation
 
-### `Lesson` (`lessons` table)
+`GET /api/study-plan/today` is the central learning-loop endpoint:
 
-One row per lesson slot per day. Lessons are created lazily the first time the user calls `GET /today`.
+1. Resolve the authenticated user's active-language plan or return 404.
+2. Load existing lessons and index them by plan day.
+3. Advance across consecutive current days that already contain generated lessons and whose lessons
+   are all complete.
+4. Persist `progress_day` if it advanced.
+5. Count generated incomplete lessons from passed days as pending.
+6. Return no current lessons when the plan is exhausted.
+7. Locate the current scheduled slot and reuse a lesson with the same stable identity when present.
+8. Otherwise generate lesson content through the LLM and persist the lesson and exercises.
+9. On uniqueness race, roll back and load the row created by the competing request.
+10. On other generation failure, log and exclude that slot from the response.
 
-- id — Type: integer; Notes: Primary key
-- study_plan_id — Type: integer; Notes: FK → study_plans
-- title — Type: string; Notes: Lesson title (matches the slot title in `generated_plan`)
-- lesson_type — Type: string; Notes: `grammar` / `vocabulary` / `reading` / `writing` / `listening` / `speaking` / `review`
-- cefr_level — Type: string; Notes: —
-- week_number — Type: integer; Notes: Week in the plan (1-based)
-- day_number — Type: integer; Notes: Day in the week (1-based)
-- unit_id — Type: string (nullable); Notes: Curriculum unit this lesson belongs to
-- content — Type: JSON; Notes: Full lesson content generated by LLM (explanation + exercises)
-- is_completed — Type: boolean; Notes: Default false
-- completed_at — Type: datetime (nullable); Notes: Set by `POST /lessons/{id}/complete`
+The response contains `plan_id`, `cefr_level`, `progress_day`, `total_days`, `pending_count`, and
+`lessons`. Every returned lesson contains ID, schedule metadata, objectives, unit ID, and
+`is_completed`.
 
-There is a **unique constraint** on `(study_plan_id, week_number, day_number, title)` to prevent duplicate generation under race conditions.
+A generation failure does not return a placeholder lesson with `id: null`. If every current slot fails,
+`lessons` is empty and a later `/today` call can retry generation.
 
-### `Exercise` (`exercises` table)
+Auto-advance never crosses a day with no persisted lessons. An unvisited day must be generated and
+completed or explicitly skipped.
 
-Exercises belong to a lesson (1:N). Generated alongside the lesson and stored in the DB.
+## Skip and pending lessons
 
-- id — Type: integer; Notes: Primary key
-- lesson_id — Type: integer; Notes: FK → lessons
-- exercise_type — Type: string; Notes: `multiple_choice` / `fill_blank` / `free_write` / `pronunciation`
-- question — Type: text; Notes: —
-- options — Type: JSON (nullable); Notes: Answer options for `multiple_choice`
-- correct_answer — Type: text; Notes: —
-- user_answer — Type: text (nullable); Notes: User's submitted answer
-- score — Type: float (nullable); Notes: 0.0 – 1.0
-- feedback — Type: text (nullable); Notes: Evaluation feedback (LLM or deterministic)
-- corrections — Type: JSON (nullable); Notes: Free-write correction objects (`original`, `corrected`, `explanation`)
-- answered_at — Type: datetime (nullable); Notes: Set when the user submits an answer
+`POST /api/study-plan/skip-day` increments `progress_day` by one up to `total_days`. It does not create,
+complete, or delete lessons.
 
----
+`GET /api/study-plan/pending-lessons` returns generated, incomplete lessons whose absolute schedule day
+is before `progress_day`. Ungenerated slots cannot be pending because no lesson row exists.
 
-## Plan generation
+`GET /api/study-plan/lessons` returns lightweight metadata for every persisted lesson in the active
+plan. It does not generate content, auto-advance, or mutate completion.
 
-**File:** `backend/app/services/study_plan_generator.py`
+## Lesson persistence
 
-Plan generation is **fully deterministic** — no LLM call. The service:
+A lesson row is unique by `(study_plan_id, week_number, day_number, title)`. Exercises belong to the
+lesson and persist question, options, correct/user answer, score, feedback, explanation, optional
+free-write corrections, and answer timestamp.
 
-1. Fetches curriculum units for the requested CEFR level from `backend/app/data/curriculum.py`.
-2. Calls `distribute_units()` to spread units across the total weeks × days grid.
-3. Builds a list of `WeekPlan` objects, each containing a list of `DayPlan` objects.
-4. Returns a `GeneratedPlan` Pydantic model, which is stored as JSON in `study_plans.generated_plan`.
+Generated lesson content stores richer structures including target-language explanation, optional
+native explanation, exercise native explanation/hint, vocabulary support, grammar references, and unit
+metadata.
 
-Current backend curriculum modules cover `en-GB`, `en-US`, `de-DE`, `es-ES`, `fr-FR`, `it-IT`, `pt-PT`, `ja-JP`, `ko-KR`, and `zh-CN`. Japanese plans use Japanese unit titles and templates such as `文字とあいさつ - レッスン 1`; Korean plans use Korean unit titles and templates such as `한글과 기본 인사 - 레슨 1`; Mainland Chinese plans use Simplified Chinese unit titles and templates such as `拼音、声调和问候 - 第 1 课`. Japanese, Korean, and Mainland Chinese curricula include `listening` lesson slots from A2 through C2, matching the platform's voice/listening practice model while keeping A1 focused on fundamentals.
-
-### Plan JSON structure (`generated_plan`)
-
-```jsonc
-{
-  "title": "English A1 — 12-week programme",
-  "cefr_level": "A1",
-  "duration_weeks": 12,
-  "days_per_week": 4,
-  "ends_with_test": true,
-  "weekly_plan": [
-    {
-      "week": 1,
-      "theme": "Greetings & introductions",
-      "days": [
-        {
-          "day": 1,
-          "lesson_type": "vocabulary",
-          "title": "Basic greetings",
-          "objectives": ["Use common greeting phrases"],
-          "estimated_minutes": 20,
-          "unit_id": "a1-unit-1",
-          "grammar_points": ["present-simple"],
-          "vocabulary_set_ids": ["greetings_a1"],
-        },
-        // ...
-      ],
-    },
-    // ...
-  ],
-}
-```
-
----
-
-## Lesson generation (lazy, on-demand)
-
-**File:** `backend/app/services/lesson_generator.py`
-
-Lesson content is generated by the LLM **the first time a user accesses a day** via `GET /today`. The lesson is then persisted to the DB and reused on subsequent calls. The router uses a title-based lookup to avoid regenerating existing lessons.
-
-The `generate_lesson()` function receives:
-
-- `cefr_level`, `lesson_type`, `topic` (= lesson title)
-- `week`, `day`, `unit_id`
-- `grammar_points`, `vocabulary_set_ids` (from curriculum context)
-- `target_language` (user's target language BCP-47)
-- `native_language` for every lesson level, so lessons can include a native-language explanation alongside the target-language explanation.
-- `previous_lessons` — the already generated lessons of the same `unit_id`, in plan order (week, day), whether or not the student has completed them. The router builds this list from the lessons it already loaded for the plan, so no extra query is needed, and appends lessons generated earlier in the same request.
-
-It returns a structured JSON with:
-
-- `explanation` — rich lesson content
-- `native_explanation` — optional translated explanation using the user's native language, generated automatically for new lessons at any CEFR level or later via `POST /api/lessons/{id}/native-explanation` for existing lessons. It contains translated explanation text, key points, examples with target-language sentences, plus native-language `common_traps` and `mini_glossary` study support. The lesson UI opens it by default for A1/A2 and keeps it collapsed by default for B1+.
-- `exercises` — list of exercise objects (`type`, `question`, `options`, `correct`, `explanation`, optional `native_explanation`, optional `native_hint`). New generated exercises keep the exercise itself and target-language explanation in the target language, then add a concise native-language clarification shown below the target-language explanation in the lesson UI and a concise pre-answer native-language hint that helps without revealing the answer. The persisted `exercises` table remains unchanged; `GET /api/lessons/{id}` reads optional native text from `lesson.content.exercises[*].native_explanation` and `lesson.content.exercises[*].native_hint` and includes it in each exercise response when available. If an existing exercise has `explanation` but no `native_explanation`, the UI shows a native-language button that calls `POST /api/lessons/exercises/{id}/native-explanation`; the backend generates the clarification from the exercise fields, caches it back into `lesson.content.exercises[*].native_explanation`, and returns it to update local UI state. If an exercise lacks `native_hint`, the lesson UI can call `POST /api/lessons/exercises/{id}/native-hint`; the backend generates a short non-answer-revealing hint, caches it in `lesson.content.exercises[*].native_hint`, and returns it. If an unanswered exercise has a technical validation problem (for example a multiple-choice exercise without usable options), the lesson UI can call `POST /api/lessons/exercises/{id}/regenerate`; the backend regenerates that one exercise with the same type, updates the existing exercise row, and replaces the matching `lesson.content.exercises[*]` entry while preserving the rest of the lesson.
-- `vocabulary` — list of lesson vocabulary items. New generated lessons use structured items with target-language `word`, `definition`, and `example`, plus optional native-language `translation`, `example_translation`, and `note`, and optional `reading` when a pronunciation guide, reading, or transliteration helps the learner. Older lessons with only `word`, `definition`, and `example` remain valid and render normally.
-
-### Variety within a unit
-
-All lessons of a unit share the same `grammar_points` and `vocabulary_set_ids`, so the prompt needs two extra signals to keep them from converging on the same content:
-
-- **Sibling-lesson context.** `build_previous_lessons_summary()` condenses the siblings into a capped summary (at most the 6 most recent lessons, each with its title, type, a truncated explanation excerpt, up to 3 example sentences, up to 6 vocabulary words, and up to 2 common traps). The vocabulary list that closes the summary is collected from every sibling, not only from the 6 described in detail, and is capped at 40 words. The summary is injected as delimited data the model must not reuse. Siblings are every lesson of the unit that already has generated content, whether or not the student has completed it, so the block is worded as material the unit already covers rather than as material the student knows. Lessons with no siblings yet get no block at all.
-- **Per-type behaviour.** The declared `lesson_type` (`grammar`, `vocabulary`, `reading`, `writing`, `listening`, `speaking`, `review`) selects an instruction block describing what the explanation, the exercise mix, and the vocabulary of that type must emphasise. Speaking focuses on oral production with model exchanges, response frames, turn-taking phrases, pronunciation, and natural spoken replies. Unknown types fall back to a generic block. `review` keeps recycling the unit's material by design, but still has to do it with new sentences and contexts. The same `lesson_type` also scopes the minimum share of exercises that must target the unit grammar points: 70% for `grammar`, `review`, and unknown types, 30% for the types whose focus block asks for lexical, comprehension, or production exercises, including `speaking`.
-
-If the LLM call fails or returns an empty exercises list, the lesson is discarded (rolled back) and that slot returns `id: null` in the today response. The user can retry by refreshing.
-
----
-
-## Unit-completion review prompt
-
-**File:** `frontend/src/app/(app)/lesson/[id]/page.tsx`
-
-After `POST /api/lessons/{id}/complete`, the lesson page calls `GET /api/study-plan/today` to detect day advancement and the next available lesson. If the completed lesson has `content.unit_id` and the next available lesson belongs to a different `unit_id`, the frontend treats the previous unit as complete and may show the reusable review prompt. The same prompt may also appear if the plan is complete (`progress_day >= total_days`).
-
-The prompt is not shown when the next `unit_id` is missing and the plan is not complete, which avoids asking for a review if the next lesson failed to generate. Duplicate-review prevention still happens through the review API (`GET /api/reviews/me`), and local dismissal cooldown is handled by `frontend/src/lib/review-prompt-triggers.ts` plus `freelingo:reviewPromptDismissed` in `localStorage`.
-
----
-
-## `GET /api/study-plan/today` — full flow
-
-**File:** `backend/app/routers/study_plan.py`
-
-This is the central endpoint of the learning loop. On every call it:
-
-1. **Loads the active plan** for the authenticated user (404 if none).
-2. **Loads all existing lessons** for the plan in a single query.
-3. **Builds an index** `lessons_by_wday: dict[(week, day), list[Lesson]]` for fast lookups.
-4. **Auto-advance loop**: While `progress_day < total_days`:
-   - Compute `(current_week, current_day)` from the current `progress_day`.
-   - Get lessons for that day from the index.
-   - If the day has lessons **and all are `is_completed=True`** → increment `progress_day`.
-   - Otherwise → stop.
-5. **Persists the new `progress_day`** with a single `commit()` if it changed.
-6. **Computes `pending_count`**: count of `is_completed=False` lessons from days that have already been passed (`abs_day < progress_day`).
-7. If `progress_day >= total_days` → returns empty lessons (plan complete).
-8. **Looks up the current week/day** in `generated_plan.weekly_plan`.
-9. For each lesson slot in the current day:
-   - If a `Lesson` row with the same title already exists → uses its `id`.
-   - If not → calls `generate_lesson()` (LLM), passing the lessons already generated for the same unit as context → persists Lesson + Exercises → stores `lesson_id`.
-   - On `IntegrityError` (race condition) → rolls back → fetches the already-created row.
-   - On any other exception → logs it → excludes the slot from today's response.
-10. **Returns `TodayResponse`**:
-
-```json
-{
-  "plan_id": 1,
-  "cefr_level": "A1",
-  "progress_day": 3,
-  "total_days": 48,
-  "pending_count": 1,
-  "lessons": [
-    {
-      "id": 12,
-      "title": "Basic greetings",
-      "lesson_type": "vocabulary",
-      "week": 1,
-      "day": 4,
-      "objectives": ["Use common greeting phrases"],
-      "estimated_minutes": 20,
-      "unit_id": "a1-unit-1"
-    }
-  ]
-}
-```
-
-### Important invariant
-
-The auto-advance loop advances **only past days where every generated lesson is complete**. A day with no generated lessons (never accessed) will **not** be auto-advanced past. The user must either access those lessons and complete them, or use "skip day".
-
----
-
-## `POST /api/study-plan/skip-day` — skip the current day
-
-Increments `progress_day` by 1, capped at `total_days`. Does not affect existing lessons.
-
-Returns:
-
-```json
-{ "progress_day": 4, "total_days": 48 }
-```
-
-Use case: the user wants to move on without completing today's lessons. The skipped lessons become **pending** (visible in `/pending-lessons` and `pending_count`).
-
----
-
-## `GET /api/study-plan/pending-lessons` — incomplete past lessons
-
-Returns a list of `Lesson` rows that:
-
-- Belong to the active plan.
-- Are **not** completed (`is_completed = false`).
-- Are from days that have already been passed: `(week_number − 1) × days_per_week + (day_number − 1) < progress_day`.
-
-Response shape (array):
-
-```json
-[
-  {
-    "id": 7,
-    "title": "Basic greetings",
-    "lesson_type": "vocabulary",
-    "week_number": 1,
-    "day_number": 1
-  }
-]
-```
-
-Only **generated** lessons appear here. Lesson slots that were never accessed (no DB row) are invisible to this endpoint. This is by design — you cannot be "pending" on content that was never loaded.
-
----
-
-## `GET /api/study-plan/lessons` — generated lesson metadata
-
-Returns every persisted `Lesson` row for the active plan in week/day/ID order. The lightweight response contains `id`, `title`, `lesson_type`, `week_number`, `day_number`, `unit_id`, and `is_completed`; lesson content and exercises are intentionally omitted.
-
-The endpoint is read-only: it does not generate future lessons, auto-advance `progress_day`, or change completion state. The plan page uses it to recover IDs and completion states for generated lessons while retaining `generated_plan` as the source of all scheduled lesson slots.
-
----
+Existing lesson JSON with only the older core vocabulary/explanation fields remains readable. Runtime
+response mapping must tolerate absent optional native-support and enriched-vocabulary fields.
 
 ## Lesson lifecycle
 
-```
-slot in generated_plan
-        │
-        ▼  first GET /today call for this day
-  generate_lesson() via LLM
-        │
-        ▼
-  Lesson row created (is_completed=false)
-  Exercise rows created
-        │
-        ▼  user opens lesson page
-  GET /api/lessons/{id}   (lesson detail + exercises)
-  POST /api/lessons/{id}/start
-        │
-        ▼  user completes exercises
-  POST /api/lessons/exercises/{ex_id}/answer  (× N)
-        │
-        ▼  user taps "Complete lesson"
-  POST /api/lessons/{id}/complete
-  → is_completed = true, completed_at = now
-  → update_daily_progress() (XP, streak, skill scores)
-  → upsert_unit_competency() if lesson has unit_id
-        │
-        ▼  next GET /today call
-  auto-advance checks if all lessons for the day are complete
-  → if yes: progress_day += 1
-```
+1. `/today` materializes the current slot as lesson and exercise rows.
+2. `GET /api/lessons/{id}` verifies ownership and returns detail.
+3. The frontend submits answers through `/api/lessons/exercises/{id}/answer`.
+4. Optional native explanation/hint and invalid-exercise regeneration endpoints update generated JSON
+   and, for regeneration, the existing exercise row.
+5. `POST /api/lessons/{id}/complete` locks the lesson and atomically persists first completion,
+   progress, XP, and competencies.
+6. A later `/today` call advances the completed day.
 
-`POST /api/lessons/{id}/complete` locks the lesson row before checking completion. Completion, daily progress, XP, and unit competencies are flushed and committed in one database transaction; a failure rolls all of them back. Concurrent requests serialize on the same row, and retries for an already-completed lesson return the existing state before checking freemium quota or updating timestamps, quota, progress, XP, or competencies. Freemium usage is recorded best-effort only after the database transaction succeeds.
+`POST /api/lessons/{id}/start` exists but only verifies ownership and returns the lesson; the current
+lesson page does not call it and no in-progress state is persisted.
 
----
+Completion retries are idempotent. An already-completed row is returned before freemium quota checks
+and does not change timestamps, progress, XP, competencies, or quota. Freemium usage is recorded
+best-effort after the database transaction succeeds.
+
+## Exercise evaluation
+
+Multiple-choice answers are deterministic. Fill-blank can use normalized/LLM evaluation.
+Free-write and pronunciation use LLM-backed evaluation with unavailable fallbacks defined by the
+Lesson/API contracts. Usable free-write corrections persist for reload and review.
+
+One unanswered technically invalid exercise can be regenerated in place. Regeneration must preserve
+exercise type and synchronize the relational row with `lesson.content.exercises`.
+
+## Progress and competencies
+
+Lesson completion applies daily XP and skill progress to the lesson's owning plan. Unit competencies
+use the mean answered-exercise score, or the established fallback when none is available, and update by
+EMA. Detailed XP and mastery rules live in `learning-resources.instructions.md`.
 
 ## Frontend integration
 
-### Dashboard (`frontend/src/app/(app)/dashboard/page.tsx`)
+Dashboard loads progress and `/today` in parallel. It chooses the first returned incomplete lesson as
+the next action, exposes generated pending lessons, and offers skip when current lessons exist.
 
-On load, calls `GET /api/progress/summary` and `GET /api/study-plan/today` in parallel. The action-oriented overview adds no other initial request; the global dashboard announcement comes from the already-loaded public config store.
+Current Dashboard code treats any non-success `/today` response as `hasPlan=false`, not only 404. This
+can show Assessment after a server error and must not be interpreted as a backend absence guarantee.
 
-From the progress summary it reads:
+My Plan combines scheduled slots from `generated_plan` with persisted `/lessons`, `/today`, and
+`/pending-lessons` metadata. Current generated lessons can start, passed incomplete lessons can resume,
+completed lessons open read-only review, and ungenerated future slots have no action.
 
-- `current_streak` / `total_xp` → renders the main streak and XP stat cards.
-- `total_lessons` → renders the completed-lessons stat card.
-- `accuracy`, `exercises_correct`, and `total_exercises` → renders the accuracy stat card, with an empty state when no exercises exist yet.
-- `vocabulary_level`, `vocabulary_mastered`, `vocabulary_total`, and `vocabulary_progress` → renders compact vocabulary progress for the active plan's current CEFR level inside the plan-progress block. The backend computes this with the plan's `target_language` and counts only flashcards in the active `study_plan_id` with `repetitions > 0`.
-- `skills` → renders the dashboard's recent-performance section. Entries are sorted from lowest to highest score and labelled in the UI as needs-practice / in-progress / strong based on the existing score ranges; this is presented as recent performance, not cumulative progress.
+The lesson page disables answer/regeneration/completion controls for completed lessons. After first
+completion it refreshes `/today`, can show day-complete state, refreshes freemium status, and may trigger
+the review prompt when the next returned lesson belongs to another unit or the plan is exhausted.
 
-From the today response it reads:
+## Related specifications
 
-- `progress_day` / `total_days` → renders a plan-progress block, percentage, days remaining, progress bar, and a "Day X of Y" label (`dayProgress` i18n key).  
-  The label shows `Math.min(progress_day + 1, total_days)` as the current day number (1-based display of a 0-indexed value).
-- `pending_count` → shows contextual pending copy in the next-step card and a "N pending lessons →" button linking to `/plan` when > 0.
-- `lessons` → chooses the first incomplete lesson with an available ID as the next step and renders the current plan day's lesson cards with "Start" buttons. The existing "N/M done" counter appears beside the next-step action, not again in the lesson-list heading, and is hidden when there is no plan or no lesson slots. Its label explicitly refers to the current plan day rather than a calendar-day quota.
-
-The **"Skip today"** button is shown when `lessons.length > 0`. It calls `POST /api/study-plan/skip-day` then refreshes the page data.
-
-The **assessment button** is shown only when the user has no active plan (`hasPlan = false`, i.e. the `/today` call returned 404).
-
-When public config contains an active dashboard announcement whose revision does not match `user.dismissed_dashboard_banner_revision`, `DashboardAnnouncement` renders it above the next-step card in the current UI locale, with English then first-available fallback. Its close button calls `PUT /api/dashboard-banner/dismiss`; a successful response updates auth state immediately and persists the revision on the account, while a failure keeps the announcement visible with a compact error. Content or source-locale changes create a new server revision and make the announcement visible again; activation-only changes do not.
-
-When Stripe is enabled and `isSubscribed(user, stripeEnabled)` is false, the dashboard shows a compact Premium banner above quick actions. For `none`, `incomplete`, `incomplete_expired`, and `canceled`, its CTA expands inline monthly/yearly plan buttons; the selected plan posts to `POST /api/billing/checkout` and redirects to Stripe Checkout. For `past_due`, `unpaid`, and `paused`, it shows payment-recovery copy and opens the Stripe Customer Portal via `POST /api/billing/portal`. The banner does not render for subscribed/trialing users or self-hosted deployments with Stripe disabled.
-
-### My Plan (`frontend/src/app/(app)/plan/page.tsx`)
-
-The plan page combines the scheduled slots from `generated_plan` with persisted metadata from `GET /api/study-plan/lessons`, the current-day response from `GET /api/study-plan/today`, and skipped incomplete lessons from `GET /api/study-plan/pending-lessons`. Matching uses the same stable week/day/title identity enforced by the lesson uniqueness constraint.
-
-The unit drawer shows **Start** for the current lesson, **Resume** for a generated lesson left pending after a skipped day, **Review** for a completed lesson, and no action for a future slot that has not been generated. All actions open the existing lesson route by ID. The drawer reuses the plan overview's solid primary action style, includes a localized lesson-count heading, gives lesson rows slightly more vertical space, and keeps its close action visible while scrolling.
-
-The active curriculum unit has an explicit localized **Current unit** label; the final level-test pseudo-unit does not receive it. Pending lessons remain fully available below the unit list and before the level-test banner, with neutral styling, brief reassurance, and the same Resume navigation. Unit selection, prerequisites, completion thresholds, and unlocking rules are unchanged.
-
-### Lesson player (`frontend/src/app/(app)/lesson/[id]/page.tsx`)
-
-Free-write answer responses and lesson detail carry persisted `corrections`. The player annotates matched original text with a struck-through error and an inserted correction, and lists every usable pair with its explanation even when no inline match exists. Matching reserves non-overlapping ranges, considers exact/case-insensitive/trimmed variants, prioritizes whole words over subwords, and preserves original Unicode offsets. The partial-state icon and border use `fl-warning` only when corrections exist and `0 < score < 1`; the unavailable-evaluation fallback retains its existing incorrect state. Learning text uses 16px and explanations 14px, with theme-aware success/error colors in both representations.
-
-On mount, stores the current `progress_day` (fetched from `GET /today`) in `progressDayAtStart`.
-
-After `POST /lessons/{id}/complete` succeeds, calls `GET /today` again. If the returned `progress_day > progressDayAtStart`, it means the auto-advance fired — the day is complete. A **"Day complete"** banner is shown to the user.
-
-The successful-completion panel includes the lesson title and, when exercises exist, the assessed/total count derived from non-null exercise scores, including zero scores. Its primary action opens My Plan; returning to Dashboard remains a secondary link. Supportive completion copy refers to the completed plan day without promising another day or additional rewards. These presentation changes add no requests and do not alter completion or review-prompt conditions.
-
-When `GET /lessons/{id}` returns `is_completed=true`, the player enters review mode: saved answers, scores, feedback, explanations, vocabulary, and navigation remain visible, but answering and regeneration controls are disabled, quota UI is hidden, and the final action returns to My Plan without calling the completion endpoint.
-
-The completion button is guarded by both an immediate in-memory lock and a disabled loading state. After any successful completion response, unsubscribed users refresh `/api/freemium/status` without the normal 60-second cache so retries or another browser tab cannot leave the displayed lesson quota stale.
-
----
-
-## Database migrations
-
-- **0025** — File: `0025_plan_progress_day.py`. Description: Adds `progress_day` column to `study_plans`. Backfills existing rows using `COALESCE(MAX((week_number-1)*days_per_week + (day_number-1)) + 1, 0)` from completed lessons. Sets `NOT NULL`.
-- **0052** — File: `0052_exercise_corrections.py`. Description: Adds nullable JSON `corrections` to `exercises`, following `0051_conversation_speech_pause`. Existing exercises keep `NULL`; new evaluations persist usable original/corrected/explanation objects for reload and review.
-
----
-
-## Error handling and edge cases
-
-- LLM unavailable during lesson generation — Lesson slot returns `id: null`; dashboard shows the slot but without a "Start" link. Retry on next `/today` call.
-- Concurrent `/today` requests for the same user — `IntegrityError` on the unique `(plan_id, week, day, title)` constraint → rollback → re-fetch the existing row.
-- `progress_day >= total_days` — `/today` returns an empty `lessons` array. Dashboard shows neutral plan-navigation copy, also suitable when no next lesson ID is available; it does not infer completion solely from the absence of a next lesson.
-- Skip past the last day — `progress_day` is capped at `total_days`.
-- Plan with no generated lessons for the current day — Auto-advance does **not** fire. The loop stops when `lessons_by_wday.get((week, day), [])` returns `[]`.
-- Lesson with no exercises returned by LLM — Rolled back and excluded from today response.
+- `multi-language.instructions.md`: active language and plan isolation.
+- `learning-resources.instructions.md`: competencies, assessment, and level test.
+- `database-models.instructions.md`: exact persisted fields and constraints.
+- `api-endpoints.instructions.md`: endpoint contracts and errors.
+- `prompts.instructions.md`: lesson generation/evaluation prompt composition.

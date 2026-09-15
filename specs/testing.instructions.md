@@ -1,314 +1,100 @@
 ---
-description: "Testing strategy for FreeLingo: backend pytest suite (45 test files, 1037 tests, 85.62% last measured coverage, with SQLite in-memory DB and Redis mocking), frontend Vitest suite (56 test files, 539 passed, including conversation and word-tooltip lifecycle cases and 23 free-write matching/page cases, no configured coverage, covering stores, components, lib, hooks, app pages, the landing preview and CTAs, accessible plan states, i18n, Stripe-aware admin subscription visibility, dashboard announcements, billing paywall UI, billing success verification, feedback unread labels, SSE parsing, memory toasts, chat stream resets, and middleware), E2E plan (Playwright, pending), CI integration, and coverage requirements."
-applyTo: "**/*.test.*, **/*.spec.*, **/tests/**, **/__tests__/**"
+description: "Current backend/frontend validation strategy, isolation rules, CI boundaries, commands, and failure handling."
+applyTo: "backend/tests/**, backend/pyproject.toml, frontend/tests/**, frontend/vitest.config.ts, frontend/package.json, scripts/{format,pre-push}.sh, .github/workflows/pr-develop-checks.yml"
 ---
 
-# Testing — FreeLingo
+# Testing
 
-## Overview
+## Scope
 
-- Backend unit + integration — Framework: pytest + pytest-asyncio; Scope: API endpoints, services, SM-2 algorithm, data integrity; Coverage: 85.62% last measured (target: 70%); Status: Implemented
-- Frontend unit — Framework: Vitest; Scope: Stores, components, hooks, lib, middleware; Coverage: Not configured; Status: Implemented
-- E2E — Framework: Playwright; Scope: Critical user flows; Coverage: Smoke; Status: Pending
+Backend validation uses pytest, pytest-asyncio, Ruff, and Black. Frontend validation uses Vitest with
+jsdom, Testing Library, ESLint, TypeScript, and Prettier. No Playwright or other E2E suite is currently
+configured.
 
-CI requires all tests to pass on every push. The canonical pre-push flow synchronizes pinned backend dependencies, formats with `./scripts/format.sh`, runs backend pytest, then frontend lint, TypeScript checking, and Vitest. The suite has 1037 passing backend tests (85.62% last measured coverage, above the 70% threshold) and 539 passing frontend tests across 56 files. Frontend tests cover stores, critical components (VoiceRecorder, AudioPlayer, ProfileSection, UnitCard/UnitDrawer, LanguageSwitcher, TargetLanguageSelector, DashboardAnnouncement, review UI, LanguageBubbles, billing paywall UI, memory toast), Stripe-aware admin subscription visibility, the admin announcement editor, billing success verification, free-write correction matching and lesson-page display, word selection and tooltip lifecycle, app pages, hooks, lib modules, SSE framing and reset handling, i18n, and middleware. Frontend coverage is not currently reported because Vitest coverage is not configured and `@vitest/coverage-v8` is not installed.
+Do not record test counts, measured coverage snapshots, individual historical results, or exhaustive
+test-file inventories in this specification.
 
----
+## Backend tests
 
-## Backend tests (pytest)
+Backend tests live in `backend/tests/` and use:
 
-### Test infrastructure
+- an in-memory SQLite database with fresh schema state per test;
+- dependency overrides and `httpx.AsyncClient` with ASGI transport for API tests;
+- an in-memory Redis-compatible mock rather than a Redis server;
+- mocked provider adapters or SDK clients so no test contacts LLM, TTS, STT, email, or Stripe networks;
+- async auto mode from pytest configuration;
+- targeted data-integrity tests for curriculum/resource cross-references.
 
-- **Database**: SQLite in-memory (`sqlite+aiosqlite:///:memory:`) for fast, isolated tests — no PostgreSQL dependency. Tables are auto-created/dropped per test via `setup_db` fixture.
-- **Redis**: mocked with an in-memory dict-based mock (implements `setex`, `get`, `delete`, `getex` with same interface as `redis.asyncio.Redis`). No Redis server needed.
-- **LLM**: always mocked at the service layer. Tests never call real Ollama, OpenAI, Anthropic, or DeepSeek.
-- **HTTP client**: `httpx.AsyncClient` with `ASGITransport` for FastAPI app testing, database and Redis dependencies overridden via `app.dependency_overrides`.
-- **Async**: `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` decorators needed.
-- **Warnings**: pytest filters known external `slowapi` deprecations (`python_multipart` pending deprecation and Python `cgi` deprecation) so the suite output stays focused on project warnings.
+SQLite does not prove PostgreSQL-specific regex, locking, index, JSONB, or concurrency behavior.
+Deployment-specific behavior remains a maintainer check unless a focused PostgreSQL test environment is
+introduced.
 
-### Test file inventory
+Backend pytest enforces the configured aggregate coverage threshold. Targeted pytest commands may fail
+that aggregate threshold unless coverage is disabled for the focused run.
 
-- **`conftest.py`** — Lines: 153. What it covers: Shared fixtures: in-memory SQLite engine, test DB session, mock Redis, HTTP client, test user and admin creation
-- **`test_auth.py`** — Lines: 593. What it covers: Registration (success, duplicate, invite gating), login, refresh (rotation, replay detection), logout, me, update-profile
-- **`test_auth_extra.py`** — Lines: 143. What it covers: Additional auth edge cases and error scenarios
-- **`test_admin.py`** — Lines: 245. What it covers: CRUD users, role enforcement (403 for non-admin), invite creation with 48h expiry
-- **`test_admin_extra.py`** — Lines: 149. What it covers: Additional admin operations and permission checks
-- **`test_avatar.py`** — Lines: 366. What it covers: Avatar upload, content-type/signature validation, UUID reference storage, private retrieval, non-public reference guard, replacement, deletion, and legacy retrieval compatibility
-- **`test_assessment.py`** — Lines: 165. What it covers: Quiz start (mocked LLM), submit and deterministic evaluation, legacy endpoints, LLM error handling
-- **`test_assessment_router.py`** — Lines: —. What it covers: Full assessment router: start, submit, evaluate, free-write, complete, post-assessment voice trial grant/regeneration, level-test questions/submit/result (58 tests, 51%→98% coverage)
-- **`test_study_plan.py`** — Lines: 500+. What it covers: Plan generation, today's lessons, auto-generation on access, generated lesson metadata, native-language lesson-generation context, unit progression
-- **`test_lessons.py`** — Lines: 400+. What it covers: Lesson CRUD, exercise answering (multiple_choice, free_write, pronunciation), invalid exercise regeneration, completion flow, progress update on complete
-- **`test_lessons_extra.py`** — Lines: 106. What it covers: Additional lesson scenarios and edge cases
-- **`test_lessons_router.py`** — Lines: —. What it covers: Lesson router: get lesson with exercises, atomic/idempotent completion including rollback and quota-bypass retries, native-language explanation generation/caching, answer exercises (all 4 types), lifecycle, fill-blank sanitization, free-write correction persistence/detail responses, malformed-correction filtering, and unavailable-evaluation fallback.
-- **`test_flashcards.py`** — What it covers: SM-2 transitions, card CRUD, plan-scoped responses and progress, selected-word deduplication before/after AI canonicalization, Unicode whitespace normalization, source promotion, and deletion before/after promotion. SQLite registers a test-only `regexp_replace` function to execute the production query expression; PostgreSQL regex behavior remains a deployment-environment check.
-- **`test_flashcards_extra.py`** — Lines: 201. What it covers: Additional flashcard scenarios and SM-2 edge cases
-- **`test_chat.py`** — Lines: 54. What it covers: SSE streaming chunks, conversation creation and messaging
-- **`test_chat_conversations.py`** — Lines: 254. What it covers: Persistent conversations, message history, conversation management
-- **`test_contact.py`** — Lines: —. What it covers: Contact form forwarding, admin-locale selection, email disabled/missing-destination no-op behavior, and email failure mapping to HTTP 502 (4 tests)
-- **`test_dashboard_banner.py`** — Lines: 263. What it covers: null defaults, admin permissions, ten-locale structured translation and safe LLM failure, exact translation validation, public-field filtering, revision semantics, and current/stale/idempotent authenticated dismissal (7 tests)
-- **`test_progress.py`** — Lines: 48. What it covers: Progress summary and history with empty and populated data
-- **`test_progress_extra.py`** — Lines: 83. What it covers: Additional progress tracking scenarios
-- **`test_conversation.py`** — Lines: 555+. What it covers: WebSocket authentication, TTS/STT disabled rejection, conversation warmup, post-assessment voice trial token acceptance/rejection, pipeline lifecycle, session management
-- **`test_conversation_pipeline_service.py`** — Lines: —. What it covers: Conversation pipeline service: system prompt, native-language name injection, sentence cleaning, TTS queue, greet, audio processing, barge-in, usage tracking, inactivity watcher, max-duration watcher, full lifecycle
-- **`test_stt.py`** — Lines: 226. What it covers: owned-plan authorization, required and bounded multipart plan context, all ten supported target-language mappings, required keyword-only provider language forwarding, and local/OpenAI adapter payloads
-- **`test_email_service.py`** — Lines: —. What it covers: Email template rendering escapes user-controlled values by default while preserving explicitly trusted internal HTML, including contact/review templates (3 tests)
-- **`test_frontend_data_integrity.py`** — Lines: 168+. What it covers: Cross-reference validation for grammar, vocabulary, related grammar slugs, and vocabulary IDs across backend language data, including Japanese, Korean, and Mainland Chinese.
-- **`test_grammar.py`** — Lines: 290+. What it covers: Grammar API: list topics, topic detail, language switching, auth, error cases, Japanese/Korean/Mainland Chinese data resolution, and native-help generation/cache refresh.
-- **`test_listening.py`** — Lines: 503. What it covers: Exercise pool (next / generate), generation lock, audio serving, answer evaluation (score + XP), attempt deduplication, history
-- **`test_listening_extra.py`** — Lines: 208. What it covers: Additional listening exercise scenarios
-- **`test_reading.py`** — Lines: 400+. What it covers: Reading exercise generation with `structured_output()`, language-aware CJK length guidance, comprehension questions, answer evaluation, XP calculation
-- **`test_reading_extra.py`** — Lines: 255. What it covers: Additional reading exercise scenarios
-- **`test_vocabulary.py`** — Lines: 175+. What it covers: Vocabulary API: list sets, by-level, set detail, language switching, auth, error cases, Japanese/Korean/Mainland Chinese data resolution, and native-help generation/cache refresh.
-- **`test_feedback.py`** — Lines: 1500+. What it covers: Feedback board: feature requests, bug reports, default exclusion of done entries, voting, comments, admin moderation, unread thread counters, per-thread read markers, and per-entry `unread_by_me` response flags
-- **`test_billing.py`** — Lines: 381+. What it covers: Stripe subscriptions, Checkout customer reuse, Customer Portal access including payment-recovery states, webhooks, payment status, real Stripe subscription statuses, unknown-status fallback, subscription lifecycle, webhook retry behavior on processing failure, current Stripe Invoice subscription shape, `stripe_subscription_id` persistence/backfill, and stale subscription-event ignoring
-- **`test_maintenance.py`** — Lines: 153. What it covers: Maintenance mode toggle, API behavior during maintenance
-- **`test_memories.py`** — What it covers: global LLM memory (Phase 9), strict native tool schema, escaped context, manual creation and duplicate validation, authenticated ungated management, ownership, exact deduplication, hard cap including eviction of existing FIFO entries, shared per-user locks for deletion/clear-all, immediate text chat tool-update events, response reset persistence, and failed fallback history protection
-- **`test_llm_adapter.py`** — Also covers progressive visible text before the tool path is known and during continuation, OpenAI GPT-5.6 tool rounds with `reasoning_effort="none"`, one-round native tool streaming for OpenAI-compatible and Anthropic providers, wrapped provider incompatibility variants, explicit fallback prompts, stream resets, empty fallback rejection, cancellation usage accounting, one-time positive capability logging, failed-continuation recovery, and one-call execution limits
-- **`test_multi_language.py`** — Also covers global cross-language memory retrieval and memory preservation through language deletion
-- **`frontend/tests/lib/memories.test.ts` and `frontend/tests/app/settings-memories.test.tsx`** — Cover memory API helpers and add/list/delete/clear Settings states
-- **`frontend/tests/lib/sse.test.ts`** — Covers SSE events fragmented across byte chunks, CRLF framing, malformed-event isolation, and truncated final-event rejection
-- **`frontend/tests/components/MemorySavedToast.test.tsx`** — Covers live-region semantics, automatic dismissal, and timer restart
-- **`test_multi_language.py`** — Lines: —. What it covers: Multi-language isolation, active language switching, language API, onboarding language creation, curriculum dispatch
-- **`test_llm_adapter.py`** — Lines: —. What it covers: LLM adapter: JSON parsing, streaming, 5 exception classes, 4 provider init paths, chat (streaming + non-streaming), Anthropic error mapping and output-truncation detection, structured output with retry, DeepSeek provider, edge cases (63 tests, 38%→100% coverage)
-- **`test_prompts.py`** — Lines: —. What it covers: Centralized prompt builders, regional/native language names, language capability metadata, memory instructions, JSON-only block reuse, language overlays including CJK readiness overlays and aliases, speaking lesson generation, and alignment between curriculum lesson types and prompt policies (32 tests)
-- **`test_reviews.py`** — Lines: —. What it covers: User reviews: creation, editing, rating validation, duplicate guard, public filtering, admin moderation, permissions, admin email notification on creation
-- **`test_phrasebook.py`** — Lines: 330+. What it covers: Phrasebook API: list categories, by-level filtering, category detail, language switching, auth, error cases, Japanese/Korean/Mainland Chinese data resolution, and native-help generation/cache refresh.
-- **`test_quota_service.py`** — Lines: —. What it covers: Quota service: key helpers, quota status, session tracking, daily/weekly minute checks, monthly token tracking, combined quota validation, full session lifecycle (71 tests, 37%→100% coverage)
-- **`test_flashcard_sm2.py`** — Lines: —. What it covers: Flashcard service: `_clean_generated_word`, `_get_lang_hint` (10 languages + fallbacks), native-language name injection, `generate_flashcards`, `lookup_word`
-- **`test_assessment_bank.py`** — Lines: —. What it covers: Assessment bank dispatcher: all 10 backend data languages including Japanese, Korean, and Mainland Chinese, unknown fallback to en-GB, ISO prefix fallback, cache reuse (14 tests, 0%→100% coverage)
-- **`test_limiter.py`** — Lines: —. What it covers: Rate limiter: `_get_real_ip` (X-Real-IP, X-Forwarded-For single/multiple, client host fallback, unknown), limiter construction (9 tests, 42%→100% coverage)
-- **`test_lesson_generator.py`** — Lines: —. What it covers: Lesson generator service: `get_valid_grammar_slugs`, `generate_lesson`, exercise schema validation, fill-blank sanitization, grammar refs filtering, `evaluate_free_write`, `evaluate_pronunciation`, `evaluate_fill_blank` (16 tests, 51%→100% coverage)
-- **`test_listening_service.py`** — Lines: —. What it covers: Listening service DB layer and generation: `structured_output()` generation persistence, language-aware CJK length guidance, `get_available_exercise`, `submit_attempt` (correct/partial/duplicate/replay/not-found), `get_user_history` (empty/attempts/limit/language filter)
+## Frontend tests
 
-**Total: 45 test files, 1037 tests.**
+Frontend tests live in `frontend/tests/`. Vitest uses jsdom and the shared `tests/setup.ts` for default
+browser/storage and Next.js mocks. Individual suites may replace those defaults when they require
+feature-specific navigation or browser behavior.
 
-### Coverage
+Tests mock browser media APIs, WebSocket/fetch, Next.js integration, translations, and backend responses
+at the narrowest useful boundary. They do not verify real microphones, provider audio, visual rendering,
+or deployed reverse-proxy behavior.
 
-- **Current coverage**: 85.62% last measured (above 70% target)
-- **Configured threshold**: 70% (enforced via `pytest --cov-fail-under=70`)
+Frontend coverage reporting is not configured. Do not claim a frontend coverage percentage.
 
-### Test patterns
+## Commands
 
-**Mocking LLM**: Mock `llm_adapter.LLMAdapter` as a singleton. Three pattern variants:
-
-- `chat()` → returns a deterministic string (used in assessment, flashcards, chat tests)
-- `chat(stream=True)` → returns an async generator yielding token chunks (used in chat SSE tests)
-- `structured_output()` → returns a pre-built Pydantic model (used in assessment, lesson, flashcard, reading, and listening tests)
-
-**Mocking Redis**: Mock `get_redis` dependency. The in-memory mock stores `refresh:{token}` → user_id mappings and `invite:{token}` → "1" for invite tokens, matching the real Redis interface.
-
-**Test user creation**: The `test_user` and `admin_user` fixtures create users directly in the test database and return them with pre-built JWT Authorization headers. Each test gets a fresh database via the `setup_db` fixture's autouse create/drop cycle.
-
-### Key test cases
-
-**Auth**:
-
-- Register success, duplicate username rejection, ALLOW_REGISTRATION=false returns 403, first user becomes admin
-- Login success sets httpOnly cookie, invalid credentials return 401, inactive user returns 401
-- Refresh rotates token (deletes old, creates new), missing cookie returns 401, replayed token returns 401
-- Logout deletes refresh token from Redis and clears cookie
-- PATCH /me updates display_name, email, password, english_variant, conversation settings
-
-**Flashcards (SM-2)**:
-
-- New card has default values: ease_factor=2.5, interval=0, repetitions=0, next_review=today
-- Quality 0 resets repetitions to 0, sets interval to 1
-- Quality 3: first review interval=1, second=6, subsequent=interval × ease_factor
-- Ease factor increases with quality 5, decreases with quality < 3, floor at 1.3
-- Next review date calculated correctly as today + interval days
-
-**Admin**:
-
-- List/create/get/update/delete users requires admin role; non-admin returns 403
-- Invite token created with 48-hour TTL, returned as URL `/register?invite=<token>`
-
-**Assessment**:
-
-- Deterministic evaluation finds highest level with >= 2 questions and >= 60% correct
-- Free-write evaluation (mocked LLM) returns adjusted_level, score, analysis
-- Level test generation (mocked LLM) constrained to grammar/vocabulary from curriculum
-
-**WebSocket conversation**:
-
-- Connection with valid JWT succeeds
-- Connection rejected with 4001 close code when either configured speech service is unavailable
-- Pipeline lifecycle: connect → auth → audio receive → STT → LLM → TTS → send → disconnect
-
-**Data integrity**:
-
-- Every grammar_slug in curriculum.ts referenced by curriculum units exists in grammar.ts
-- Every vocabulary_set_id referenced by each language's curriculum exists in that language's backend vocabulary data, including Japanese, Korean, and Mainland Chinese.
-- Every related grammar slug in grammar topics points to an existing topic
-
-### Running tests
+Use project scripts and package commands from their documented working directories:
 
 ```bash
+# Backend full suite
+source .venv/bin/activate
 cd backend
+pytest -v
 
-# All tests with coverage
-pytest
+# Backend focused file
+pytest tests/test_auth.py -v --no-cov
 
-# Single test file
-pytest tests/test_auth.py -v
-
-# Single test function
-pytest tests/test_flashcards.py::test_quality_3_basic_progression -v
-
-# With HTML coverage report
-pytest --cov-report=html
-```
-
----
-
-## Frontend tests (Vitest)
-
-### Test infrastructure
-
-- **Framework**: Vitest with jsdom environment
-- **Setup file**: `tests/setup.ts` — provides `localStorage` mock and `next/navigation` mock
-- **Config**: `vitest.config.ts` with `@/` path alias
-- **Location**: `frontend/tests/` (separate from source, mirroring backend structure)
-- **Run**: `npm run test:run` (CI/single run) or `npm run test` (watch mode)
-
-### Test file inventory
-
-- **`tests/setup.ts`** — Tests: —. What it covers: Global mocks: `localStorage` (full Storage interface), `next/navigation` (`useRouter`, `usePathname`, `useSearchParams`)
-- **`tests/lib/api.test.ts`** — Tests: 8. What it covers: `apiFetch`: Bearer token attachment, 401 refresh + retry, logout on refresh failure, concurrent refresh deduplication, loading counter inc/dec, custom header preservation
-- **`tests/store/auth.test.ts`** — Tests: 12. What it covers: `isSubscribed()`: Stripe on/off × subscription states (active, trialing, past_due, canceled, none, null user). Store: `setTokens`, `setUser`, dashboard-banner dismissed-revision update, `logout` (clears `fl_tour_done` from localStorage)
-- **`tests/lib/audio.test.ts`** — Tests: 8. What it covers: `float32ToWav`: WAV header (RIFF/WAVE/fmt/data), PCM format chunk, buffer size, RIFF chunk size, sample clamping [-1,1], silence encoding, empty arrays, different sample rates
-- **`tests/lib/conversation-ws.test.ts`** — Tests: 6. What it covers: `buildConversationWsUrl`: https→wss, http→ws, same-origin fallback from `window.location`, whitespace trimming, trailing slash handling
-- **`tests/middleware.test.ts`** — Tests: 12. What it covers: Route protection: redirect to `/login` without `refresh_token`, allow with token, public routes pass through. Locale detection: cookie > Accept-Language > default `en`, cookie persistence, header injection
-- **`tests/store/config.test.ts`** — Tests: 5. What it covers: `load()`: fetches `/api/config` including the active dashboard banner, idempotency (no double-fetch), keeps defaults on network error, keeps defaults on non-ok response, uses defaults for missing fields
-- **`tests/lib/mappers.test.ts`** — Tests: 10. What it covers: `mapUser`: snake_case→camelCase mapping including dashboard-banner dismissal revision, fallback to `current` user for PATCH responses, explicit null avatar clearing, safe defaults when no current user, API data preferred over current
-- **`tests/lib/target-languages.test.ts`** — Tests: 29. What it covers: target-language metadata, supported language invariants, `TARGET_LANGUAGE_CATALOG`, `getLanguageByCode` lookup, default target language, and CJK readiness capabilities/text classes
-- **`tests/store/language.test.ts`** — Tests: 29. What it covers: Language store: fetchLanguages, switchLanguage, addLanguage, removeLanguage, active language tracking
-- **`tests/lib/utils.test.ts`** — Tests: 10. What it covers: `cn()`: single/multiple/conditional classes, Tailwind conflict resolution (twMerge), array/object inputs, falsy values, empty/null handling
-- **`tests/lib/logger.test.ts`** — Tests: 10. What it covers: `getLogger()`: debug/info/warn/error console calls with namespace, string/object/Error payload serialization, undefined/unserializable payload, `silentLogger` no-ops
-- **`tests/hooks/useLogout.test.tsx`** — Tests: 1. What it covers: `useLogout()`: calls API logout endpoint, redirects to /login
-- **`tests/store/theme.test.ts`** — Tests: 5. What it covers: Theme store: default `system`, `setTheme` transitions (light/dark/system), localStorage persistence (`fl-theme` key)
-- **`tests/store/loading.test.ts`** — Tests: 9. What it covers: Loading store: `inc`/`dec`/`finishComplete` state machine, count never below 0, auto `complete` flag when count reaches 0, reset on next `inc`
-- **`tests/store/freemium.test.ts`** — Tests: 2. What it covers: Freemium status cache reuse and forced refresh after lesson completion
-- **`tests/components/LanguageSwitcher.test.tsx`** — Tests: 10. What it covers: LanguageSwitcher: rendering, dropdown open/close, CEFR badges, active checkmark, language switch, toast, router refresh
-- **`tests/components/LanguageBubbles.test.tsx`** — Tests: 2. What it covers: LanguageBubbles renders one bubble per supported target language and positions bubbles from the supported-language count
-- **`tests/components/TargetLanguageSelector.test.tsx`** — Tests: 10. What it covers: TargetLanguageSelector: grid rendering, catalog filtering by `availableCodes`, active/inactive states, onChange callback, flag images
-- **`tests/components/VoiceRecorder.test.tsx`** — Tests: 28. What it covers: VoiceRecorder idle/recording/transcribing/error states, getUserMedia and AudioContext lifecycle, multipart audio and study-plan context, immutable recording context across prop changes, awaited asynchronous result handling, late permission cancellation/unmount cleanup, auto-stop, microphone denial, and resampling
-- **`tests/components/AudioPlayer.test.tsx`** — Tests: 36. What it covers: AudioPlayer: idle/loading/playing/error states, TTS API call, play/pause/stop, voice resolution (prop > localStorage > default), audio queue, unmount safety
-- **`tests/components/ProfileSection.test.tsx`** — Tests: 48. What it covers: ProfileSection: form fields, save flow, avatar upload/remove (File/FileReader mock), password change (validation, mismatch), locale change with reload, API error states
-- **`tests/components/BillingPaywall.test.tsx`** — Tests: 11. What it covers: Billing UI: Settings payment-recovery states via Customer Portal, canceled/incomplete/unsubscribed plan buttons, dashboard recovery banner, gated-page paywall recovery copy, and logged-in landing pricing direct Checkout
-- **`tests/components/UnitCard.test.tsx`** — Tests: 41. What it covers: UnitCard: all 5 status states (completed/active/locked/level-test/default), accessible icon labels, active-unit description linkage and reduced-motion styling, progress bar, click interactions. UnitDrawer: grammar points, lesson list, Start/Continue/Review actions, accessible completion states, escape/outside-click dismiss
-- **`tests/store/progress.test.ts`** — Tests: 48. What it covers: Progress store: 10 initial state fields, setProgress/setTodayLessons/completeLesson/setCurrentUnit/setPlanDuration/updateUnitProgress/unlockLevelTest/setLevelTestResult, state transition isolation
-- **`tests/lib/reviews.test.ts`** — Tests: 6. What it covers: Review API client helpers for my-review, create/update/delete, public, admin update, and delete calls
-- **`tests/lib/review-prompt-triggers.test.ts`** — Tests: 7. What it covers: Review prompt trigger helpers for voice sessions and unit completion: 5-minute voice threshold, unit-completed gate, dismissal cooldown expiry, and maximum dismissal count
-- **`tests/components/ReviewPrompt.test.tsx`** — Tests: 6. What it covers: Review prompt status check, rating validation, rating-only and commented submission, dismissal, duplicate-review suppression, status-check failure guard
-- **`tests/components/LandingReviewsCarousel.test.tsx`** — Tests: 3. What it covers: Landing reviews carousel rendering with comments, rating-only fallback text, empty list behavior
-- **`tests/app/billing-success.test.tsx`** — Tests: 3. What it covers: Billing success page: shows Premium-active copy only after `/me` confirms `active`/`trialing`, refreshes the session when no access token is in memory, and keeps pending-confirmation copy when the subscription is not yet synced.
-- **`tests/app/landing.test.tsx`** — Tests: 2. What it covers: server-rendered static demo region and heading, three English phrases with `lang="en-GB"`, absence of simulated buttons/inputs, anonymous registration CTA, session-aware dashboard CTA, and preserved `#features` link. Requests, translations, and child components are mocked; this is not a visual or translation-quality check.
-- **`tests/app/admin-overview.test.tsx`** — Tests: 3. What it covers: Admin overview rendering and Stripe-enabled/disabled subscription metrics and alerts
-- **`tests/app/admin-query-params.test.tsx`** — Tests: 4. What it covers: Admin query param parsing, state handling, suppression of hidden subscription filters when Stripe is disabled, and stale-response protection while Stripe configuration hydrates
-- **`tests/app/admin-user-detail.test.tsx`** — Tests: 2. What it covers: Admin user-detail subscription status, tab, and controls in Stripe-enabled and Stripe-disabled modes
-- **`tests/app/admin-reviews.test.tsx`** — Tests: 3. What it covers: Admin review moderation list, approval action, delete confirmation
-- **`tests/app/admin-system-banner.test.tsx`** — Tests: 2. What it covers: admin source composition, ten-locale translation preview, editable translation save, and source preservation after translation failure
-- **`tests/app/chat-memory-stream.test.tsx`** — Tests: 4. What it covers: visible partial-response reset and replacement, confirmed-memory toast timing and survival after later errors, and word-selection disabling during active streaming
-- **`tests/app/api-stt-route.test.ts`** — Tests: 1. What it covers: multipart STT proxy forwarding of authorization, cookies, audio/plan form data, and request cancellation
-- **`tests/app/flashcards-review.test.tsx`** — Tests: 1. What it covers: serialization of delayed SM-2 updates so repeated review actions cannot submit the same card concurrently
-- **`tests/components/DashboardAnnouncement.test.tsx`** — Tests: 3. What it covers: current-locale rendering, successful account-persistent dismissal, compact dismissal error, and suppression of an already-dismissed revision
-- **`tests/i18n/admin-messages.test.ts`** — Tests: 1. What it covers: Admin message bundle integrity
-
-- **`tests/lib/free-write-corrections.test.ts`** — Tests: 19. Covers exact/case-insensitive/trimmed matching, whole-word priority, repeated and mixed-case fragments, overlap allocation, literal punctuation, unmatched corrections, and Unicode offset preservation.
-- **`tests/app/lesson-free-write-corrections.test.tsx`** — Tests: 4. Covers answer submission, persisted review annotations, unmatched corrections in the list, theme-aware status/correction classes, learning-text sizes, and fallback states.
-- **`tests/components/ConversationMode.test.tsx`**: 13 passing cases: permission-denial retry (1), permission granted after unmount (1), cleanup and obsolete callbacks for JSON error/onerror/onclose (3), immediate turn blocking and release on listening/turn_complete/STT/LLM/TTS error (5), VAD misfire (1), stale Blob decoding (1), and WAV-send exception with restart (1). VAD, browser media, WebSocket, and playback are mocked; this does not verify real microphone/device behavior in a browser. Manual validation against the remote deployment remains pending.
-
-- **Word-save regression coverage**: hook responses after unmount, deferred selections, selection-to-selection races, lesson regeneration/navigation, and transcript/session tooltip dismissal. Lifecycle tests and tooltip integration tests use separate conversation suites.
-
-**Confirmed pre-push result: 539 passed across 56 files, including all 13 ConversationMode lifecycle cases and 23 free-write matching/page cases. Frontend coverage is not configured/reported.**
-
-### Running tests
-
-```bash
+# Frontend unit tests
 cd frontend
-
-# All tests (single run, for CI)
 npm run test:run
 
-# Watch mode (development)
-npm run test
-
-# Single test file
+# Frontend focused file
 npx vitest run tests/lib/api.test.ts
 
-# Single test by name
-npx vitest run -t "attaches Bearer token"
+# Frontend static checks
+npm run lint
+npx tsc --noEmit
 ```
 
----
+`./scripts/format.sh` is the canonical formatter and can modify files. It runs Ruff/Black and
+ESLint/Prettier from fixed project directories.
 
-## E2E tests (Playwright — pending)
+`./scripts/pre-push.sh` synchronizes backend dependencies, formats, then runs backend pytest, frontend
+lint, TypeScript, and Vitest. It covers the principal quality checks but does not exactly mirror CI:
+CI does not autoformat or modify the worktree.
 
-### Planned critical flows
+## CI
 
-```
-frontend/e2e/
-├── auth.spec.ts            # Register → login → logout, protected routes
-├── assessment.spec.ts      # Complete placement test, view results
-├── study-plan.spec.ts      # Generate plan, view today's lessons
-├── lesson.spec.ts          # Complete a full lesson with exercises
-├── flashcards.spec.ts      # Review session, SM-2 progression
-├── chat.spec.ts            # Send message, receive streaming response
-└── admin.spec.ts           # Create user, generate invite, edit roles
-```
+`.github/workflows/pr-develop-checks.yml` runs quality checks for pull requests targeting `develop`.
+Pushes to `develop` and `main` trigger image-publication workflows, not this quality workflow.
 
-### Design notes
+Backend CI uses Python 3.14, pip 26.2.1, pinned requirements/constraints, SQLite tests, and configured
+coverage enforcement. Frontend CI uses Node 25, installs npm 11, runs `npm ci`, then lint, typecheck,
+and Vitest.
 
-- E2E tests run against a deployed instance (remote server), not a local Docker Compose stack
-- The web server is started separately — Playwright config uses `reuseExistingServer: true` with a target URL
-- Tests use `data-testid` attributes on key interactive elements (buttons, inputs, status indicators)
-- Each spec is independent — tests within a spec are isolated by fresh browser contexts
+## Rules
 
----
-
-## CI integration
-
-CI runs on GitHub Actions, triggered on pushes and pull requests. The project is self-hosted; CI is for quality gates before Docker packaging.
-
-### Workflow
-
-- Backend setup selects Python 3.14, installs pip 26.2.1, and installs `backend/requirements.txt` with its included `backend/constraints.txt`. Both files participate in the pip cache key; test plugins use the same pins as the application environment.
-- Backend tests — Steps: `pytest -v`; Threshold: >= 70% coverage
-- Frontend lint — Steps: `npm run lint`; Threshold: Zero errors
-- Frontend typecheck — Steps: `npx tsc --noEmit`; Threshold: Clean output
-- Frontend tests — Steps: `npm run test:run`; Threshold: All tests pass (539 passed across 56 files, including 13 ConversationMode lifecycle cases and 23 free-write matching/page cases)
-
-**Note**: The backend test job uses SQLite (same as local tests), not PostgreSQL. No Docker services are required for the backend test job.
-
-### Pre-push skill
-
-The `run-tests` opencode skill is available for requested test, lint, typecheck, or targeted verification runs.
-
-The `pre-push` opencode skill mirrors CI locally. The canonical all-in-one command is `./scripts/pre-push.sh`; it synchronizes the backend dependencies and auto-formats before running checks. The canonical formatter-only command is `./scripts/format.sh`. Run order:
-
-1. Activate the project virtual environment, install pip 26.2.1, and synchronize backend dependencies using `backend/requirements.txt` and its included constraints.
-2. Auto-format (`./scripts/format.sh`: ruff --fix, black, eslint --fix, prettier --write from fixed backend/frontend directories)
-3. Backend tests (pytest)
-4. Frontend lint (npm run lint)
-5. Frontend typecheck (tsc --noEmit)
-6. Frontend tests (vitest)
-
----
-
-## Testing rules
-
-- **Mock LLM always** — never call Ollama, OpenAI, Anthropic, or DeepSeek in tests
-- **Mock Redis always** — use in-memory dict mock, no Redis server needed
-- **In-memory SQLite for backend tests** — fast, isolated, no Docker dependency
-- **Test SM-2 algorithm in isolation** — pure function, no DB needed for the algorithm itself
-- **Test streaming endpoints with chunk assertions** — verify SSE format and token ordering
-- **Test error states explicitly** — 401, 403, 409, 422, 500 for every major endpoint
-- **Each test file runs independently** — no shared state between files, fresh DB per test
-- **Coverage thresholds enforced** — backend >= 70% (enforced); frontend coverage is not configured
-- **No `docker compose` in test configs** — the development environment does not have Docker locally; E2E tests target a remote deployment
-- **Data integrity tests validate cross-file references** — ensures curriculum, grammar, and backend vocabulary data files stay consistent across backend language packages, including Japanese, Korean, and Mainland Chinese.
-- **Frontend: test critical logic + components** — test stores, utils, API client, middleware, and key components (VoiceRecorder, AudioPlayer, ProfileSection, UnitCard/UnitDrawer, LanguageSwitcher)
-- **Frontend: mock `localStorage` and `next/navigation` globally** in `tests/setup.ts` — individual test files should not re-mock these
-- **Frontend: tests live in `frontend/tests/`** — not co-located with source files, mirroring the backend `tests/` convention
-- **Frontend: Component tests use vitest + @testing-library/react** — mock browser APIs (AudioContext, getUserMedia, FileReader) and external dependencies (next-intl, next/image, next/navigation)
-- **Failure handling** — if any backend or frontend test fails after launching a suite, stop, report the failing test(s), and ask the user how to proceed before modifying production code or tests. After approval, re-run only the failing command unless the user requests the full suite.
+- Ask before running tests, builds, linters, typechecks, formatters, or validation scripts.
+- Prefer the smallest relevant command; do not start full suites automatically.
+- Never call real external providers from tests.
+- Keep tests independent and deterministic; do not rely on ordering or shared durable state.
+- Test success, ownership, authorization, invalid input, quota/access, and recoverable provider failure
+  where relevant.
+- Verify streaming protocols with frame/chunk boundaries and cancellation behavior.
+- Update language-data integrity tests when adding a target language.
+- If any launched validation fails, stop, report the exact failure, and ask before changing production
+  code or tests. After approval, rerun only the failing command unless a broader run is requested.
+- Use the `run-tests` skill for requested targeted validation and `pre-push` for final full validation.

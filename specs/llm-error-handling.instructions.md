@@ -1,137 +1,108 @@
 ---
-description: "LLM error handling strategy for FreeLingo: failure mode taxonomy, retry logic, context overflow mitigation, user-facing error messages, and HTTP status code mapping for all LLM providers."
-applyTo: "backend/app/services/llm_adapter.py, backend/app/services/*.py"
+description: "Current LLM failure taxonomy, adapter retries, structured-output recovery, stream fallback, and feature-level error handling."
+applyTo: "backend/app/services/llm_adapter.py, backend/app/services/**/*.py, backend/app/routers/**/*.py"
 ---
 
-# LLM Error Handling — FreeLingo
+# LLM Error Handling
 
-## Failure scenarios
+## Taxonomy
 
-The LLM can fail in multiple ways. Every endpoint that calls the LLM must handle these scenarios gracefully:
+`llm_adapter.py` defines:
 
-- \***\*Malformed JSON** — LLM returns invalid or unparseable JSON for `structured_output`\*\* — Likelihood: High (especially Ollama with small models). Impact: Blocks quiz/plan/lesson/flashcard generation
-- \***\*Timeout** — LLM takes > 120 s to respond (common on CPU-only Ollama)\*\* — Likelihood: Medium (CPU-only). Impact: Blocks any LLM-dependent request
-- \***\*Empty response** — LLM returns no content (null or empty string)\*\* — Likelihood: Low. Impact: Blocks generation, user sees no progress
-- \***\*Hallucinated schema** — JSON response has wrong structure, missing fields, or extra fields\*\* — Likelihood: Medium. Impact: Causes Pydantic validation failure
-- \***\*Context overflow** — prompt exceeds model token limit (especially Gemma 3 12B, Ollama)\*\* — Likelihood: Medium (long conversations). Impact: Blocks chat, assessment with large context
-- \***\*Service unavailable** — Ollama or API down, unreachable\*\* — Likelihood: Low (local) / Medium (API). Impact: Blocks all LLM-dependent features
-- \***\*Rate limited** — OpenAI, Anthropic, or DeepSeek quota exceeded\*\* — Likelihood: Medium (external APIs). Impact: Blocks requests temporarily
+- `LLMError`: base normalized provider error.
+- `LLMTimeoutError`: adapter timeout after retries.
+- `LLMUnavailableError`: provider connection failure or rate limit after retries.
+- `LLMResponseError`: empty, malformed, truncated, or schema-invalid output; may retain raw response.
+- `LLMContextOverflowError`: declared context-specific subtype; current adapter does not raise it.
+- `LLMToolsUnsupportedError`: explicit function/tool incompatibility.
 
----
+Provider SDK exceptions are normalized where the adapter recognizes timeout, connection, rate-limit,
+stream, or tool-capability failures. Rate limiting and provider unavailability share
+`LLMUnavailableError`; there is no distinct provider-rate-limit HTTP contract.
 
-## Error taxonomy
+## Adapter retries
 
-Custom exception hierarchy in `llm_adapter.py`:
+The adapter performs up to three adapter-level invocations with increasing delays. `_call_with_retry`
+currently retries any `LLMError`, not only transient subclasses. Anthropic disables SDK retries
+explicitly; OpenAI-compatible clients do not, so three adapter invocations do not guarantee only three
+network requests.
 
-- `LLMError` — Parent: `Exception`; Raised when: Base class for all LLM errors
-- `LLMTimeoutError` — Parent: `LLMError`; Raised when: Request exceeds 120 s timeout after all retries
-- `LLMUnavailableError` — Parent: `LLMError`; Raised when: Connection error or rate limit from provider
-- `LLMResponseError` — Parent: `LLMError`; Raised when: Malformed response, empty content, invalid JSON, missing fields. Carries `raw_response` for debugging
-- `LLMContextOverflowError` — Parent: `LLMError`; Raised when: Prompt exceeds model's max context tokens
+The timeout applies per adapter invocation. Do not document malformed output or context overflow as
+non-retryable while the implementation catches the common base class.
 
----
+## Structured output
 
-## Retry strategy
+`structured_output()` appends the JSON-only instruction, parses and validates the first response, and
+performs one correction generation after parse/validation failure. If the correction path fails, its
+broad exception handling wraps that failure as `LLMResponseError`, including a timeout or availability
+error raised during the second generation.
 
-The LLM adapter implements automatic retry for transient errors:
+Anthropic non-streaming responses stopped at `max_tokens` become `LLMResponseError` before downstream
+JSON parsing and retain partial content for diagnostics.
 
-- **Max retries**: 2 (up to 3 total attempts)
-- **Backoff**: exponential — delay = 2 s × (attempt + 1): 2 s, then 4 s
-- **Timeout per attempt**: 120 seconds
-- **Retryable errors**: timeouts, connection errors, rate limits (from provider)
-- **Non-retryable errors**: malformed JSON (handled separately with correction prompt), context overflow (prevention is better)
+Only callers using `structured_output()` receive this correction behavior. Assessment free-write and
+end-of-level test generation use raw `chat()` plus `json.loads()` and do not receive Pydantic recovery.
 
-### Retry flow
+## Context size
 
-```
-Attempt 1 ──→ fails (timeout/connection/rate limit)
-    ↓ 2 s delay
-Attempt 2 ──→ fails
-    ↓ 4 s delay
-Attempt 3 ──→ fails → raise appropriate LLM*Error
-```
+The adapter declares context constants and `LLMContextOverflowError` but does not currently estimate
+tokens, trim messages, enforce model windows, or raise that subtype. Context windows vary by selected
+model and must not be documented as fixed provider-wide values.
 
----
+Callers apply bounded histories independently: text chat limits recent messages and voice keeps a
+bounded in-memory context. A provider can still reject oversized prompts as a normalized generic
+error.
 
-## Structured output recovery
+## Streaming failures
 
-Structured JSON uses the same provider-independent recovery process for Ollama, OpenAI, Anthropic, and DeepSeek:
+Opening a stream and iterating a stream are different boundaries. Adapter-level retry protects stream
+creation; failures after iteration begins do not generally restart through `_call_with_retry`.
 
-1. **First attempt**: Send the prompt with an appended instruction to return ONLY valid JSON (no markdown fences, no extra text). Parse the response.
-2. **On parse failure**: Strip markdown code fences if present (`json ... `). Attempt JSON decode and Pydantic validation.
-3. **Retry with correction**: If step 2 fails, send a follow-up message telling the LLM exactly what was wrong ("That response was not valid JSON. Error: ...") and request pure JSON again.
-4. **If retry also fails**: Raise `LLMResponseError` with the raw response for debugging.
+Tool-enabled streams have additional recovery:
 
-Anthropic responses with `stop_reason=max_tokens` are rejected before JSON parsing. The resulting `LLMResponseError` identifies output truncation and retains the partial response for diagnostics.
+- execute at most one native tool call;
+- explicit incompatibility avoids repeating the same tool request;
+- failure before visible output can retry the complete turn without tools;
+- incompatibility or continuation failure after visible output emits a reset before no-tools retry;
+- empty fallback output raises `LLMResponseError`;
+- tool executor/persistence failure is returned to the model and does not confirm a memory save.
 
-## Native tool recovery
+Voice remembers explicit incompatibility only for the current WebSocket session. A later session probes
+again.
 
-Memory tools are optional capabilities and must not break text or voice tutoring:
+## Feature boundaries
 
-- OpenAI GPT-5.6 requests that include native tools use Chat Completions with `reasoning_effort="none"`, as required for function tools on that endpoint. Other providers and model families do not receive this parameter.
-- A known tool incompatibility is non-fatal and is not retried as the same invalid request.
-- Known incompatibility detection recognizes provider wording for unsupported tools, tool use, and function calling through both explicit exception causes and implicit exception contexts.
-- Any tool-enabled request or stream failure before visible output retries the original turn without tools. Only an explicit incompatibility disables memory tools for later turns in the current voice session; transient failures retry tools on the next turn.
-- The first tool-capable stream that completes successfully logs `Native tools available for provider=... model=...` once per process, making positive capability visible without producing one entry per turn.
-- Voice remembers an explicit incompatibility only for the current WebSocket session and omits tools on later turns; a new session probes support again.
-- Tool-free retries use a separate system prompt that retains saved-memory context but omits instructions to call `save_user_memory`.
-- A known incompatibility or failed tool continuation after visible output emits a stream-reset control event before retrying the complete turn without tools. Consumers discard the invalid partial text, and fallback streams that emit no visible text raise `LLMResponseError` rather than completing successfully.
-- A persistence or executor failure is returned only to the model as a failed tool result; the visible response continues without a memory confirmation event.
+There is no universal HTTP mapping for every LLM exception.
 
----
+- Some synchronous Assessment and Flashcard endpoints distinguish timeout (504), unavailable (503),
+  and invalid output (502).
+- Native-resource and lesson-help endpoints commonly map all normalized LLM failures to 503.
+- Dashboard-banner translation maps normalized LLM failures to 502.
+- Exercise evaluation can return a deterministic unavailable/fallback result instead of an HTTP error.
+- Listening and Reading generation runs in background; failure is logged and no resource appears.
+- Chat emits JSON SSE error events, never `[ERROR]` text markers.
+- Voice emits structured WebSocket error frames and may keep recoverable sessions open.
 
-## Context overflow mitigation
+`api-endpoints.instructions.md` and each domain spec own the observable status/event contract.
 
-Each provider has a maximum context window. The adapter tracks these limits and applies message trimming before every call:
+## Diagnostics
 
-- Ollama — 8192 (varies per model — Gemma 3 12B: 8192)
-- OpenAI — 128,000
-- DeepSeek — 128,000
-- Anthropic — 200,000
+`LLMResponseError.raw_response` is available for diagnostics but is not logged systematically by every
+caller. Logging must avoid credentials, private memories, full personal prompts, and unnecessary raw
+learner content.
 
-**Trimming algorithm**: Estimate token count as `len(content) / 4` (rough heuristic for English). If total exceeds the limit, drop the oldest user/assistant messages first, always preserving:
+## Provider differences
 
-- The system message
-- The last 2 exchanges (user + assistant)
+Anthropic extracts system messages into its separate system parameter, requires a configured output
+token budget, and uses provider-specific stream/content shapes. OpenAI-compatible clients share one
+request path with model-specific exceptions such as the supported GPT-5.6 tool-round reasoning option.
+These differences remain internal to the adapter.
 
-This is a proactive strategy — `LLMContextOverflowError` is declared in the exception hierarchy but the trimming prevents it from ever being raised.
+## Maintenance rules
 
----
-
-## HTTP status code mapping
-
-Each LLM error type maps to a specific HTTP status and user-facing message:
-
-- Malformed JSON after retry — HTTP Status: 502 Bad Gateway; User Message: "The AI returned an invalid response. Please try again."
-- Anthropic output truncation — HTTP Status: 502 Bad Gateway; User Message: "The AI returned an invalid response. Please try again."
-- Timeout (> 120 s, all retries exhausted) — HTTP Status: 504 Gateway Timeout; User Message: "The AI took too long. Check that Ollama is running or try a smaller model."
-- Service unreachable — HTTP Status: 503 Service Unavailable; User Message: "AI service is not reachable. Make sure Ollama is running."
-- Provider rate limited — HTTP Status: 429 Too Many Requests; User Message: "Too many requests to the AI provider. Please wait a moment."
-- Context overflow — HTTP Status: 413 Payload Too Large; User Message: "The conversation is too long. Start a new session."
-- Empty response — HTTP Status: 502 Bad Gateway; User Message: "The AI returned no content. Try rephrasing your request."
-
----
-
-## Service-layer integration
-
-Every service that calls the LLM (assessment, study_plan_generator, lesson_generator, flashcard_sm2, chat, conversation_pipeline) wraps its calls in try/except blocks that catch the LLM error hierarchy and translate to appropriate HTTP exceptions or WebSocket error messages:
-
-- **REST endpoints**: catch → log error → raise `HTTPException` with appropriate status code
-- **SSE chat stream**: catch within the async generator → yield `data: [ERROR] ...\n\n` in the SSE stream
-- **WebSocket conversation**: catch → send `{"type": "error", "message": "..."}` and continue (does not disconnect)
-
-All errors are logged at the service layer with the raw response attached (for `LLMResponseError`) to enable debugging.
-
----
-
-## Anthropic-specific handling
-
-Anthropic's SDK (`AsyncAnthropic`) has a different API shape than the OpenAI-compatible clients:
-
-- `system` message is extracted from the message list and passed as a separate parameter (Anthropic API convention)
-- Maximum output tokens parameter: `ANTHROPIC_MAX_TOKENS`, configurable per deployment and defaulting to 8192
-- Response format: `response.content[0].text` (not `response.choices[0].message.content` as in OpenAI)
-- Non-streaming responses stopped by `max_tokens` raise `LLMResponseError` with the partial content before downstream JSON parsing
-- Streaming: same async generator pattern, but chunk structure differs internally
-
-These differences are abstracted inside the adapter — the rest of the application is unaware of which provider is active.
+- Document implemented behavior, not desired retry or context-management policy.
+- Preserve normalized exceptions when changing catch order; avoid converting typed availability errors
+  into response-format errors unintentionally.
+- Treat failures before visible stream output differently from failures after partial output.
+- Keep error messages provider-neutral unless operator action is genuinely provider-specific.
+- Update endpoint/domain specs when an observable status or stream event changes.

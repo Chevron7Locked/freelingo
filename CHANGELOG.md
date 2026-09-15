@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Project specifications reorganized and aligned with the current implementation.
 - **Theme-aware correction colors**: inline annotations and correction lists share success/error tokens, and the partial-answer state uses a new `fl-warning` token with separate dark and light colors.
 - **Correction readability**: original and corrected learning text use 16px with language-specific fonts and spacing, while auxiliary explanations retain 14px text.
 

@@ -71,7 +71,7 @@ These are set globally in `next.config.ts` via the `headers()` function.
 - The pending-turn guard is set before WAV encoding/sending and on `transcribing`/`thinking`, blocking duplicate submissions before backend acknowledgement. `turn_complete` or `listening` releases it; normal assistant-speaking UI still waits for playback to drain.
 - `stt_failed`, `llm_failed`, and `tts_failed` release the guard, cancel playback, clear assistant speaking/streaming state, and keep the session live with a visible error; the next successful WAV send clears it. Other server errors and transport/startup failures finalize the session.
 - `onVADMisfire` clears the speech-start timestamp and user-speaking indicator, discarding the unfinished segment.
-- `frontend/tests/components/ConversationMode.test.tsx` has 13 lifecycle cases passed in the confirmed pre-push run (6.58 s), included in the 494 passed across 50 frontend files. These tests use mocks and do not validate real microphone/device behavior in a browser; manual validation against the remote deployment remains pending.
+- `frontend/tests/components/ConversationMode.test.tsx` has 13 lifecycle cases, included in the 517 passing tests across 52 frontend files. These tests use mocks and do not validate real microphone/device behavior in a browser; manual validation against the remote deployment remains pending.
 
 ### Audio processing
 

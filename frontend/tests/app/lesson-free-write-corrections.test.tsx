@@ -222,7 +222,7 @@ describe('LessonPage free-write corrections', () => {
     expect(block.textContent).toBe(
       'Ich habe viele abenteuer Abenteuer gehabt. Ich bin mit auto mit dem Auto gefahren.'
     )
-    expect(block.className).toContain('border-amber-500/50')
+    expect(block.className).toContain('border-fl-warning/50')
     const inlineDeletions = Array.from(block.querySelectorAll('del')).map(
       (el) => el.textContent
     )
@@ -232,7 +232,7 @@ describe('LessonPage free-write corrections', () => {
     expect(inlineDeletions).toEqual(['abenteuer', 'mit auto'])
     expect(inlineInsertions).toEqual(['Abenteuer', 'mit dem Auto'])
 
-    expect(scoreBadge('corrections')).toHaveClass('text-amber-400')
+    expect(scoreBadge('corrections')).toHaveClass('text-fl-warning')
 
     // Corrections list shows every correction, including the one whose
     // fragment does not occur in the answer.
@@ -242,6 +242,13 @@ describe('LessonPage free-write corrections', () => {
     expect(items[2].querySelector('del')?.textContent).toBe('Deutschalnd')
     expect(items[2].querySelector('ins')?.textContent).toBe('Deutschland')
     expect(items[2].textContent).toContain('Spelling of the country name.')
+    for (const item of items) {
+      expect(item.querySelector('del')).toHaveClass('text-fl-error-fg')
+      expect(item.querySelector('ins')).toHaveClass('text-fl-success')
+      expect(item.querySelector('p')).toHaveClass('text-base')
+      expect(item.querySelector('p')).not.toHaveClass('text-sm')
+      expect(item.querySelector('p:last-child')).toHaveClass('text-sm')
+    }
     expect(screen.getByText('Great job!')).toBeInTheDocument()
   })
 
@@ -263,11 +270,11 @@ describe('LessonPage free-write corrections', () => {
 
     expect(screen.queryByPlaceholderText('yourAnswer')).toBeNull()
     const block = annotatedBlock(container)
-    expect(block.className).toContain('border-amber-500/50')
+    expect(block.className).toContain('border-fl-warning/50')
     expect(
       Array.from(block.querySelectorAll('ins')).map((el) => el.textContent)
     ).toEqual(['Abenteuer', 'mit dem Auto'])
-    expect(scoreBadge('corrections')).toHaveClass('text-amber-400')
+    expect(scoreBadge('corrections')).toHaveClass('text-fl-warning')
     expect(
       screen.getByText('corrections').closest('div')?.querySelectorAll('li')
     ).toHaveLength(3)

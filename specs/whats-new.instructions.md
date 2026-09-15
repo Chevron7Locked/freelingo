@@ -137,8 +137,6 @@ The number of entries is variable per version. The component reads entries dynam
 
 **When shipping approved new content: replace the existing `entry*` keys with the approved entries rather than accumulating old entries.** If the maintainer requests only a version bump, leave every entry unchanged. In either case, update the `version` key to match `WHATS_NEW_VERSION` in the component.
 
-For v1.9.5, all ten locales preserve the four existing entries exactly: the visual-identity highlight as `entry1`, the reading-comfort and clearer-translations/website/email highlights as `entry2` and `entry3`, and the general bug-fix entry as `entry4`. `WHATS_NEW_VERSION` and every localized version label are `v1.9.5`. The existing dynamic renderer is unchanged. The dismissal key is now `fl_whats_new_seen_v1.9.5`, so a prior dismissal of an older version does not suppress this modal once onboarding is complete.
-
 ---
 
 ## Files to create / modify

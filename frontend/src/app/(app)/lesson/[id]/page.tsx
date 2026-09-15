@@ -1013,7 +1013,7 @@ export default function LessonPage() {
                         isAnswerCorrect
                           ? 'border-fl-success/50'
                           : isPartiallyCorrect
-                            ? 'border-amber-500/50'
+                            ? 'border-fl-warning/50'
                             : 'border-fl-error-fg/50'
                       )}
                     >
@@ -1042,7 +1042,7 @@ export default function LessonPage() {
                           (isAnswerCorrect
                             ? 'border-fl-success/50'
                             : isPartiallyCorrect
-                              ? 'border-amber-500/50'
+                              ? 'border-fl-warning/50'
                               : 'border-fl-error-fg/50')
                       )}
                       placeholder={t('yourAnswer')}
@@ -1065,7 +1065,7 @@ export default function LessonPage() {
                         isAnswerCorrect
                           ? 'text-fl-success'
                           : isPartiallyCorrect
-                            ? 'text-amber-400'
+                            ? 'text-fl-warning'
                             : 'text-fl-error-fg'
                       }`}
                     >
@@ -1123,16 +1123,15 @@ export default function LessonPage() {
                         {exerciseCorrections.map((correction, index) => (
                           <li key={index}>
                             <p
-                              className={cn(
-                                getTargetLanguageTextClass(targetLanguageCode),
-                                'text-sm'
+                              className={getTargetLanguageTextClass(
+                                targetLanguageCode
                               )}
                             >
-                              <del className="text-red-400 line-through decoration-red-400/70">
+                              <del className="text-fl-error-fg decoration-fl-error-fg/70 line-through">
                                 {correction.original}
                               </del>
                               <span className="text-fl-muted-3"> → </span>
-                              <ins className="font-semibold text-green-400 decoration-green-400/70">
+                              <ins className="text-fl-success decoration-fl-success/70 font-semibold">
                                 {correction.corrected}
                               </ins>
                             </p>

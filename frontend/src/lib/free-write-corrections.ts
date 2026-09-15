@@ -12,6 +12,7 @@ interface Occurrence {
   start: number
   end: number
   wholeWord: boolean
+  priority: number
 }
 
 interface Candidate extends Occurrence {
@@ -41,49 +42,41 @@ function isWholeWord(
   )
 }
 
-function allIndexes(haystack: string, needle: string): number[] {
-  const indexes: number[] = []
-  let index = haystack.indexOf(needle)
-  while (index !== -1) {
-    indexes.push(index)
-    index = haystack.indexOf(needle, index + 1)
-  }
-  return indexes
-}
-
-// Every occurrence of the fragment in the answer. Tries the fragment as-is,
-// then trimmed; within each, an exact match before a case-insensitive one. The
-// first variant with any hits wins so the segments keep the answer's spelling.
+// Keep all variants available, deduplicating ranges with exact/as-is matches
+// preferred. Search the original answer so case folding cannot shift offsets.
 function findOccurrences(answer: string, original: string): Occurrence[] {
-  const lowerAnswer = answer.toLowerCase()
+  const occurrences = new Map<string, Occurrence>()
   const variants = [original, original.trim()].filter(
     (candidate, index, all) => candidate && all.indexOf(candidate) === index
   )
-  for (const candidate of variants) {
-    for (const [haystack, needle] of [
-      [answer, candidate],
-      [lowerAnswer, candidate.toLowerCase()],
-    ]) {
-      const indexes = allIndexes(haystack, needle)
-      if (indexes.length === 0) continue
-      return indexes.map((start) => {
-        const end = start + needle.length
-        return {
-          start,
-          end,
-          wholeWord: isWholeWord(answer, needle, start, end),
+  for (const [variantIndex, candidate] of variants.entries()) {
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    for (const [caseIndex, flags] of ['gu', 'giu'].entries()) {
+      // Lookahead retains overlapping occurrences for the allocation pass.
+      const pattern = new RegExp(`(?=(${escaped}))`, flags)
+      for (const match of answer.matchAll(pattern)) {
+        const start = match.index
+        const end = start + match[1].length
+        const key = `${start}:${end}`
+        if (!occurrences.has(key)) {
+          occurrences.set(key, {
+            start,
+            end,
+            wholeWord: isWholeWord(answer, match[1], start, end),
+            priority: variantIndex * 2 + caseIndex,
+          })
         }
-      })
+      }
     }
   }
-  return []
+  return [...occurrences.values()]
 }
 
 // Locates each correction's `original` fragment in the submitted answer and
 // splits the answer into plain/fix segments. Each correction is assigned one
 // non-overlapping occurrence: repeated identical fragments consume successive
-// occurrences, whole-word matches are preferred over matches inside a longer
-// word, and when two fragments start at the same position the longer one wins.
+// occurrences. Whole-word matches beat subwords, then exact/as-is matches beat
+// fallbacks; ties follow answer order, preferring longer same-start fragments.
 // Corrections whose fragment cannot be placed yield no segment — they are
 // still shown in the corrections list below the answer.
 export function annotateAnswer(
@@ -100,6 +93,7 @@ export function annotateAnswer(
   )
   candidates.sort(
     (a, b) =>
+      a.priority - b.priority ||
       a.start - b.start ||
       b.end - b.start - (a.end - a.start) ||
       a.correction - b.correction

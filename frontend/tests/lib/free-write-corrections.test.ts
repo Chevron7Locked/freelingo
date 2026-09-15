@@ -107,6 +107,65 @@ describe('annotateAnswer', () => {
     ])
   })
 
+  it('prefers a case-insensitive whole word over an exact subword', () => {
+    expect(annotateAnswer('Ich bin In Berlin', [correction('in', 'aus')])).toEqual([
+      { type: 'plain', text: 'Ich bin ' },
+      { type: 'fix', original: 'In', corrected: 'aus' },
+      { type: 'plain', text: ' Berlin' },
+    ])
+  })
+
+  it('allocates repeated fragments across mixed capitalization without duplicate ranges', () => {
+    const segments = annotateAnswer('in Schule und In Park', [
+      correction('in', 'in die'),
+      correction('in', 'in den'),
+    ])
+    expect(segments).toEqual([
+      { type: 'fix', original: 'in', corrected: 'in die' },
+      { type: 'plain', text: ' Schule und ' },
+      { type: 'fix', original: 'In', corrected: 'in den' },
+      { type: 'plain', text: ' Park' },
+    ])
+  })
+
+  it('prefers an exact whole word over an earlier case-insensitive occurrence', () => {
+    const segments = annotateAnswer('In Berlin und in Paris', [
+      correction('in', 'aus'),
+    ])
+    expect(segments).toEqual([
+      { type: 'plain', text: 'In Berlin und ' },
+      { type: 'fix', original: 'in', corrected: 'aus' },
+      { type: 'plain', text: ' Paris' },
+    ])
+  })
+
+  it('keeps trimmed occurrences available after an untrimmed match is allocated', () => {
+    const segments = annotateAnswer(' gut und gut.', [
+      correction(' gut ', ' sehr gut '),
+      correction(' gut ', 'besser'),
+    ])
+    expect(segments).toEqual([
+      { type: 'fix', original: ' gut ', corrected: ' sehr gut ' },
+      { type: 'plain', text: 'und ' },
+      { type: 'fix', original: 'gut', corrected: 'besser' },
+      { type: 'plain', text: '.' },
+    ])
+  })
+
+  it('treats regular expression characters as literal correction text', () => {
+    expect(annotateAnswer('a+b?', [correction('a+b?', 'a plus b')])).toEqual([
+      { type: 'fix', original: 'a+b?', corrected: 'a plus b' },
+    ])
+  })
+
+  it('preserves answer offsets when earlier Unicode text expands on lowercasing', () => {
+    expect(annotateAnswer('İ IN Berlin', [correction('in', 'aus')])).toEqual([
+      { type: 'plain', text: 'İ ' },
+      { type: 'fix', original: 'IN', corrected: 'aus' },
+      { type: 'plain', text: ' Berlin' },
+    ])
+  })
+
   it('prefers the longer fragment when two corrections start at the same position', () => {
     const segments = annotateAnswer('Ich bin mit auto gefahren.', [
       correction('mit', 'mit dem'),

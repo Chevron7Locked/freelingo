@@ -369,6 +369,8 @@ The active curriculum unit has an explicit localized **Current unit** label; the
 
 ### Lesson player (`frontend/src/app/(app)/lesson/[id]/page.tsx`)
 
+Free-write answer responses and lesson detail carry persisted `corrections`. The player annotates matched original text with a struck-through error and an inserted correction, and lists every usable pair with its explanation even when no inline match exists. Matching reserves non-overlapping ranges, considers exact/case-insensitive/trimmed variants, prioritizes whole words over subwords, and preserves original Unicode offsets. The partial-state icon and border use `fl-warning` only when corrections exist and `0 < score < 1`; the unavailable-evaluation fallback retains its existing incorrect state. Learning text uses 16px and explanations 14px, with theme-aware success/error colors in both representations.
+
 On mount, stores the current `progress_day` (fetched from `GET /today`) in `progressDayAtStart`.
 
 After `POST /lessons/{id}/complete` succeeds, calls `GET /today` again. If the returned `progress_day > progressDayAtStart`, it means the auto-advance fired — the day is complete. A **"Day complete"** banner is shown to the user.
@@ -384,6 +386,7 @@ The completion button is guarded by both an immediate in-memory lock and a disab
 ## Database migrations
 
 - **0025** — File: `0025_plan_progress_day.py`. Description: Adds `progress_day` column to `study_plans`. Backfills existing rows using `COALESCE(MAX((week_number-1)*days_per_week + (day_number-1)) + 1, 0)` from completed lessons. Sets `NOT NULL`.
+- **0052** — File: `0052_exercise_corrections.py`. Description: Adds nullable JSON `corrections` to `exercises`, following `0051_conversation_speech_pause`. Existing exercises keep `NULL`; new evaluations persist usable original/corrected/explanation objects for reload and review.
 
 ---
 

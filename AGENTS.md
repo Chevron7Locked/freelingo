@@ -29,6 +29,7 @@
 - Free-write evaluations persist usable correction pairs on the exercise and expose them after submission, reload, and review. Inline matching considers exact, case-insensitive, and trimmed occurrences without shifting Unicode offsets; whole words precede subwords, then exact/as-is matches precede fallbacks, with one non-overlapping span per correction. Unmatched corrections remain in the list. Partial styling requires corrections and `0 < score < 1`; unavailable evaluations retain the existing fallback state.
 - Every lesson type used by the static curricula has an explicit generation policy. Mainland Chinese B2-C2 `speaking` lessons use oral-production guidance and a 30% grammar-exercise minimum instead of the generic 70% fallback.
 - Generated flashcards derive their target language from the active persisted plan rather than client state, and reviews credit progress to the persisted card plan rather than whichever language is currently active.
+- Selected-word saves deduplicate within the active plan using lowercase and collapsed Unicode whitespace, promote existing generated cards with an atomic returning update, and treat a deletion before promotion as a miss. Shared word tooltips invalidate late saves/selections on unmount and close when navigation or regeneration replaces the question.
 
 ### Voice conversation and speech recognition
 

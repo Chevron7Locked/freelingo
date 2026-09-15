@@ -1,7 +1,7 @@
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -34,6 +34,9 @@ from app.services.user_language_service import get_active_language
 
 router = APIRouter(prefix="/api/flashcards", tags=["flashcards"])
 
+# Python's Unicode whitespace set, expressed explicitly for PostgreSQL regexes.
+_WORD_WHITESPACE = "[\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+"
+
 
 def _normalize_flashcard_word(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
@@ -44,7 +47,7 @@ async def _find_existing_flashcard(
 ) -> Flashcard | None:
     """Return the oldest card in the plan whose word matches `word` case-insensitively.
 
-    Matching is done in SQL (`lower(trim(word))`) so a save never materializes the
+    Matching collapses Unicode whitespace in SQL so a save never materializes the
     whole plan. Ordering by id makes the winner deterministic when duplicates already
     exist.
     """
@@ -56,7 +59,8 @@ async def _find_existing_flashcard(
         .where(
             Flashcard.user_id == user_id,
             Flashcard.study_plan_id == study_plan_id,
-            func.lower(func.trim(Flashcard.word)) == normalized,
+            func.lower(func.trim(func.regexp_replace(Flashcard.word, _WORD_WHITESPACE, " ", "g")))
+            == normalized,
         )
         .order_by(Flashcard.id)
         .limit(1)
@@ -66,7 +70,7 @@ async def _find_existing_flashcard(
 
 async def _respond_with_existing_flashcard(
     db: AsyncSession, card: Flashcard
-) -> FlashcardFromWordResponse:
+) -> FlashcardFromWordResponse | None:
     """Build the from-word response for a card that already exists in the plan.
 
     `already_saved` means "already visible in My Vocabulary" (source == from_text).
@@ -75,10 +79,22 @@ async def _respond_with_existing_flashcard(
     """
     already_saved = card.source == "from_text"
     if not already_saved:
-        card.source = "from_text"
+        result = await db.execute(
+            update(Flashcard)
+            .where(Flashcard.id == card.id, Flashcard.user_id == card.user_id)
+            .values(source="from_text")
+            .returning(Flashcard)
+            .execution_options(populate_existing=True)
+        )
+        promoted = result.scalar_one_or_none()
+        # A concurrent deletion is a miss. UPDATE RETURNING avoids a separate
+        # refresh after commit, when the row could have disappeared again.
+        if promoted is None:
+            return None
+        resp = FlashcardFromWordResponse.model_validate(promoted)
         await db.commit()
-        await db.refresh(card)
-    resp = FlashcardFromWordResponse.model_validate(card)
+    else:
+        resp = FlashcardFromWordResponse.model_validate(card)
     resp.already_saved = already_saved
     return resp
 
@@ -327,7 +343,9 @@ async def create_flashcard_from_word(
     plan = await _get_active_plan_or_404(db, current_user.id)
     existing = await _find_existing_flashcard(db, current_user.id, plan.id, data.word)
     if existing is not None:
-        return await _respond_with_existing_flashcard(db, existing)
+        response = await _respond_with_existing_flashcard(db, existing)
+        if response is not None:
+            return response
 
     try:
         card_data = await lookup_word(
@@ -359,7 +377,9 @@ async def create_flashcard_from_word(
     # pass this check.
     existing = await _find_existing_flashcard(db, current_user.id, plan.id, card_data.word)
     if existing is not None:
-        return await _respond_with_existing_flashcard(db, existing)
+        response = await _respond_with_existing_flashcard(db, existing)
+        if response is not None:
+            return response
 
     card = Flashcard(
         user_id=current_user.id,

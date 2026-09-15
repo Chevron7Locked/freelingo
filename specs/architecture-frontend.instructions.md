@@ -119,7 +119,7 @@ frontend/
 │   │
 │   └── middleware.ts            # Auth guard (redirect to /login) + locale detection
 │
-├── tests/                       # Vitest suite (52 files, 517 passed; includes 13 ConversationMode cases)
+├── tests/                       # Vitest suite (56 files, 539 passed; includes 13 ConversationMode cases)
 │   ├── setup.ts                 # Global mocks: localStorage, next/navigation, next-intl
 │   ├── middleware.test.ts
 │   ├── components/
@@ -218,6 +218,7 @@ frontend/
 - `/assessment` — Level placement test (`BeginnerGate` → `AdaptiveQuiz` → `DurationSelector`).
 - `/plan` — Study plan overview: unit cards, `LevelTestBanner`, and `UnitDrawer`. Scheduled slots are merged with generated lesson metadata, today's lessons, and skipped pending lessons so the drawer offers Start, Resume, or Review according to persisted state while leaving future ungenerated slots unavailable. Drawer actions reuse the overview's solid primary button treatment; its moderately wider desktop layout adds a localized lesson-count heading, roomier actionable rows, and a sticky close footer without changing the mobile full-width presentation.
 - `/lesson/[id]` — Lesson player: content + interactive exercises. If `content.native_explanation` exists, it is shown below the target-language explanation in a collapsible section that opens by default for A1/A2 and stays collapsed by default for B1+. The section renders translated text, key points, examples, common traps, and a mini-glossary when present. If it is missing, the expanded section shows a native-language button that calls `POST /api/lessons/{id}/native-explanation` and stores the returned explanation in local lesson state. Before an unanswered exercise, the page can show a native-language hint button; if the exercise response includes `native_hint`, it renders immediately when requested, otherwise the button calls `POST /api/lessons/exercises/{id}/native-hint` and patches the exercise in local state. The exercise card header also includes a small `Regenerate exercise` action for unanswered exercises; it calls `POST /api/lessons/exercises/{id}/regenerate`, replaces the current exercise in local state when the backend confirms a technical issue, and shows a small inline error if regeneration is rejected or fails. Exercise feedback still shows the target-language explanation first; when an exercise response includes `native_explanation`, the lesson page renders that native-language clarification directly below the target-language exercise explanation. When the exercise has a target-language explanation but lacks native text, the same button pattern calls `POST /api/lessons/exercises/{id}/native-explanation` and patches the exercise in local state. The lesson vocabulary block renders target-language word, definition, example audio, and example text, plus optional reading, native-language translation, example translation, and usage note when present; older vocabulary items without those optional fields still render normally. The grammar explanation text and the exercise question both allow one selected word to be saved through the shared vocabulary-save tooltip; answer options, hints, and the free-text answer input remain normal controls. Completing a lesson may open the reusable review prompt when it advances the user out of the completed curriculum unit, subject to duplicate-review checks and local dismissal cooldown.
+- The shared `useWordSave` hook invalidates pending saves and deferred selections on dismissal, reselection, and unmount, and clears auto-dismiss timers. Lesson tooltips close on exercise navigation or question replacement, including regeneration, but survive answer/hint updates that preserve the question. Conversation tooltips close on transcript mutation, session start, and finalization.
 - Completed lessons reuse `/lesson/[id]` in read-only review mode. Saved responses and feedback remain visible, answer/regeneration and quota controls are unavailable, and the final action returns to `/plan` without completing or rewarding the lesson again.
 - First-time lesson completion disables duplicate submissions immediately and force-refreshes the freemium status after success instead of decrementing cached quota optimistically.
 - `/chat` — AI tutor text chat with SSE streaming. Free-tier users see a `FreemiumQuotaBanner` with daily chat message counter; when the quota is exhausted, a compact `PaywallBanner` replaces the chat input. Premium users see the normal chat interface.
@@ -453,7 +454,7 @@ The pending-turn guard is set synchronously before WAV encoding/sending and on `
 
 Recoverable `stt_failed`, `llm_failed`, and `tts_failed` messages release the turn guard, cancel playback, clear assistant speaking/streaming state, and keep the session live with a visible error. The next successful WAV send clears that error. Other server errors and transport/startup failures finalize the session. `onVADMisfire` clears the speech-start timestamp and user-speaking indicator, discarding the unfinished segment.
 
-`tests/components/ConversationMode.test.tsx` has 13 lifecycle cases, included in the 517 passing tests across 52 files. These tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending.
+`tests/components/ConversationMode.test.tsx` has 13 lifecycle cases, included in the 539 passing tests across 56 files. The separate `ConversationModeWordTooltip.test.tsx` preserves three transcript/session tooltip cases. These tests use mocks and do not validate real microphone behavior in a browser; manual validation against the remote deployment remains pending.
 
 ## Tests
 
@@ -462,7 +463,7 @@ Testing infrastructure and strategy are documented in [testing.instructions.md](
 **Summary:**
 
 - **Framework**: Vitest with jsdom environment
-- **Test files**: 52 (plus setup.ts), with 517 passing tests
+- **Test files**: 56 (plus setup.ts), with 539 passing tests
 - **Setup**: Global mocks for `localStorage`, `next/navigation`, `next-intl`
 - **Coverage areas**: API fetch interceptor, auth store, audio queue, conversation WebSocket, target language utilities, mapper functions, middleware, component rendering
 - **Free-write coverage**: 19 matching cases cover repeated/mixed-case fragments, word/subword priority, trimmed fallbacks, literal punctuation, overlaps, and Unicode offsets; 4 lesson-page cases cover submission, review, corrections styling, and fallback states.

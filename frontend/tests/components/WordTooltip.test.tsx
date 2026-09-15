@@ -104,6 +104,39 @@ describe('WordTooltip component', () => {
 })
 
 describe('useWordSave', () => {
+  it('does not schedule dismissal or clear browser selection after unmount', async () => {
+    vi.useFakeTimers()
+    mockSelection('perro')
+    const { result, unmount } = renderHook(() => useWordSave())
+    act(() => result.current.handleTextSelection('El perro corre'))
+    act(() => vi.advanceTimersByTime(0))
+    let resolveSave!: (value: unknown) => void
+    mockApiFetch.mockReturnValueOnce(new Promise((resolve) => { resolveSave = resolve }))
+    let pending!: Promise<void>
+    act(() => { pending = result.current.handleSaveWord() })
+    unmount()
+    mockSelection('gato')
+    const nextSelection = window.getSelection()!
+    await act(async () => {
+      resolveSave({ ok: true, json: async () => ({ already_saved: false }) })
+      await pending
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => vi.advanceTimersByTime(1500))
+    expect(nextSelection.removeAllRanges).not.toHaveBeenCalled()
+  })
+
+  it('ignores a deferred selection callback after unmount', () => {
+    vi.useFakeTimers()
+    mockSelection('perro')
+    const { result, unmount } = renderHook(() => useWordSave())
+    act(() => result.current.handleTextSelection('El perro corre'))
+    unmount()
+    vi.mocked(window.getSelection).mockClear()
+    act(() => vi.advanceTimersByTime(0))
+    expect(window.getSelection).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     mockApiFetch.mockReset()
   })

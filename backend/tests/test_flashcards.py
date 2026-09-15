@@ -715,3 +715,147 @@ async def test_create_flashcard_from_word_existing_duplicates_return_oldest(
         data = response.json()
         assert data["id"] == oldest_id
         assert data["already_saved"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected", ["take off", "taking"])
+@pytest.mark.parametrize("stored", ["  TAKE  OFF  ", "\tTake\u00a0\u2003Off\n"])
+async def test_from_word_normalizes_stored_whitespace(
+    client, test_user, db_session, monkeypatch, selected, stored
+):
+    from unittest.mock import AsyncMock
+
+    import app.routers.flashcards as fc_router
+    from app.models.flashcard import Flashcard
+    from app.schemas.flashcards import FlashcardCreate
+
+    user, headers = test_user
+    plan = await _seed_plan(db_session, user.id)
+    card = Flashcard(
+        user_id=user.id,
+        study_plan_id=plan.id,
+        word=stored,
+        definition="leave the ground",
+        source="from_text",
+        example_sentence="Take off.",
+        translation="despegar",
+    )
+    db_session.add(card)
+    await db_session.commit()
+    lookup = AsyncMock(
+        return_value=FlashcardCreate(
+            word="take off",
+            definition="leave the ground",
+            example_sentence="Take off.",
+            translation="despegar",
+        )
+    )
+    monkeypatch.setattr(fc_router, "lookup_word", lookup)
+    response = await client.post(
+        "/api/flashcards/from-word",
+        headers=headers,
+        json={"word": selected, "context": "The plane is taking off."},
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == card.id
+    assert response.json()["already_saved"] is True
+    assert lookup.await_count == (0 if selected == "take off" else 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected", ["run", "running"])
+async def test_from_word_deleted_before_promotion_continues(
+    client, test_user, db_session, monkeypatch, selected
+):
+    from sqlalchemy import delete
+
+    import app.routers.flashcards as fc_router
+    from app.models.flashcard import Flashcard
+    from app.schemas.flashcards import FlashcardCreate
+
+    user, headers = test_user
+    plan = await _seed_plan(db_session, user.id)
+    card = Flashcard(
+        user_id=user.id,
+        study_plan_id=plan.id,
+        word="run",
+        definition="old definition",
+        example_sentence="I run.",
+        translation="correr",
+    )
+    db_session.add(card)
+    await db_session.commit()
+    respond = fc_router._respond_with_existing_flashcard
+
+    async def delete_then_promote(db, existing):
+        # Simulate deletion after lookup while keeping the previously loaded object.
+        await db.execute(
+            delete(Flashcard)
+            .where(Flashcard.id == existing.id)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        return await respond(db, existing)
+
+    async def lookup(**kwargs):
+        return FlashcardCreate(
+            word="run",
+            definition="new definition",
+            example_sentence="I run.",
+            translation="correr",
+        )
+
+    monkeypatch.setattr(fc_router, "_respond_with_existing_flashcard", delete_then_promote)
+    monkeypatch.setattr(fc_router, "lookup_word", lookup)
+    response = await client.post(
+        "/api/flashcards/from-word",
+        headers=headers,
+        json={"word": selected, "context": "I am running."},
+    )
+    assert response.status_code == 200
+    assert response.json()["definition"] == "new definition"
+    assert response.json()["source"] == "from_text"
+    assert response.json()["already_saved"] is False
+
+
+@pytest.mark.asyncio
+async def test_from_word_promotion_response_survives_delete_after_commit(
+    client, test_user, db_session, monkeypatch
+):
+    from sqlalchemy import delete
+
+    from app.models.flashcard import Flashcard
+
+    user, headers = test_user
+    plan = await _seed_plan(db_session, user.id)
+    card = Flashcard(
+        user_id=user.id,
+        study_plan_id=plan.id,
+        word="run",
+        definition="move fast",
+        example_sentence="I run.",
+        translation="correr",
+    )
+    db_session.add(card)
+    await db_session.commit()
+    card_id = card.id
+    commit = db_session.commit
+
+    async def commit_then_delete():
+        await commit()
+        await db_session.execute(
+            delete(Flashcard)
+            .where(Flashcard.id == card_id)
+            .execution_options(synchronize_session=False)
+        )
+        await commit()
+
+    monkeypatch.setattr(db_session, "commit", commit_then_delete)
+    response = await client.post(
+        "/api/flashcards/from-word",
+        headers=headers,
+        json={"word": "run", "context": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == card_id
+    assert response.json()["source"] == "from_text"

@@ -307,12 +307,12 @@ export default function LessonPage() {
     setRegenerateError(null)
   }, [currentExercise, exercises])
 
-  // Drop the word tooltip only when navigating between exercises. Answering,
-  // regenerating, or loading a hint replaces items in `exercises` without
-  // changing the active question, and must not close a tooltip mid-save.
+  // Navigation or regeneration can replace the selected text. Answers and
+  // hints keep the question unchanged and must not close a tooltip mid-save.
+  const activeQuestion = exercises[currentExercise]?.question
   useEffect(() => {
     dismissTooltip()
-  }, [currentExercise, dismissTooltip])
+  }, [currentExercise, activeQuestion, dismissTooltip])
 
   async function submitAnswer(overrideAnswer?: string) {
     if (isReview) return

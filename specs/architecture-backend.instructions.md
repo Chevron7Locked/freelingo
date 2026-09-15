@@ -144,7 +144,7 @@ backend/
 │
 ├── requirements.txt             # Exact direct dependencies; loads constraints.txt
 ├── constraints.txt              # Exact indirect dependency versions
-└── tests/                       # pytest suite (45 test files, 1023 tests)
+└── tests/                       # pytest suite (45 test files, 1037 tests)
 ```
 
 ## Runtime and dependency installation
@@ -230,8 +230,8 @@ Testing infrastructure and strategy are documented in [testing.instructions.md](
 
 - **Framework**: pytest + pytest-asyncio + httpx AsyncClient
 - **Test files**: 45 (plus conftest.py for shared fixtures)
-- **Tests**: 1023
-- **Coverage**: 85.58% last measured (target: ≥70%)
+- **Tests**: 1037
+- **Coverage**: 85.62% last measured (target: ≥70%)
 - **Key fixtures**: async database session, test client with auth headers, Redis mock, user_language fixture
 
 ---

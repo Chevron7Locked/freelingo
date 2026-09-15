@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Selectable lesson and conversation vocabulary**: learners can save words from lesson exercise questions and completed tutor turns in voice transcripts, with a localized “Already saved” confirmation in all ten UI languages.
 - **Free-write corrections**: writing evaluations now persist structured corrections and display inline annotations plus a localized corrections list with explanations, including after reloads and in completed-lesson review.
 - **Partial-answer feedback**: free-write answers with corrections and a score between zero and one use an accessible partial-state icon and an amber border, while unavailable evaluations retain their existing fallback state.
 
@@ -19,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Duplicate vocabulary saves**: word lookups reuse the oldest matching card in the active plan before and after AI canonicalization, normalize case and Unicode whitespace, and promote generated cards into My Vocabulary without duplicating their review progress.
+- **Word-selection lifecycle**: stale save responses and deferred selections cannot affect newer selections or unmounted pages, and tooltips close on conversation transitions, exercise navigation, or regenerated questions while remaining open for answer and hint updates.
+- **Concurrent vocabulary deletion**: promoting an existing card uses an atomic update with returned data, treating cards deleted before promotion as lookup misses and avoiding a failing refresh after a successful promotion.
 - **Correction matching**: annotations consider exact, case-insensitive, and trimmed occurrences together, prefer whole words over subwords, allocate repeated fragments without overlapping ranges, and preserve original Unicode offsets.
 - **Incomplete writing corrections**: evaluation entries without usable original and corrected text are discarded before persistence and display.
 

@@ -170,4 +170,25 @@ describe('Lesson page word tooltip', () => {
 
     expect(screen.queryByText('saveWord')).not.toBeInTheDocument()
   })
+
+  it('dismisses a selection made while question regeneration is pending', async () => {
+    let resolveRegeneration!: (response: Response) => void
+    mockApiFetch.mockImplementation((url: string) =>
+      url === '/api/lessons/exercises/10/regenerate'
+        ? new Promise<Response>((resolve) => { resolveRegeneration = resolve })
+        : mockApiFetchImplementation(url)
+    )
+    render(<LessonPage />)
+    await screen.findByText('Primera pregunta')
+    fireEvent.click(screen.getByRole('button', { name: 'regenerateExercise' }))
+    await selectWordInQuestion('pregunta', 'Primera pregunta')
+    expect(screen.getByText('saveWord')).toBeInTheDocument()
+    await act(async () => {
+      resolveRegeneration(new Response(JSON.stringify({
+        ...exercises[0], question: 'Una pregunta nueva',
+      }), { status: 200 }))
+    })
+    await screen.findByText('Una pregunta nueva')
+    expect(screen.queryByText('saveWord')).not.toBeInTheDocument()
+  })
 })

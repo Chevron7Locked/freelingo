@@ -1,5 +1,5 @@
 ---
-description: "Testing strategy for FreeLingo: backend pytest suite (45 test files, 1023 tests, 85.58% last measured coverage, with SQLite in-memory DB and Redis mocking), frontend Vitest suite (52 test files, 517 passed, including 13 ConversationMode cases and 23 free-write matching/page cases, no configured coverage, covering stores, components, lib, hooks, app pages, the landing preview and CTAs, accessible plan states, i18n, Stripe-aware admin subscription visibility, dashboard announcements, billing paywall UI, billing success verification, feedback unread labels, SSE parsing, memory toasts, chat stream resets, and middleware), E2E plan (Playwright, pending), CI integration, and coverage requirements."
+description: "Testing strategy for FreeLingo: backend pytest suite (45 test files, 1037 tests, 85.62% last measured coverage, with SQLite in-memory DB and Redis mocking), frontend Vitest suite (56 test files, 539 passed, including conversation and word-tooltip lifecycle cases and 23 free-write matching/page cases, no configured coverage, covering stores, components, lib, hooks, app pages, the landing preview and CTAs, accessible plan states, i18n, Stripe-aware admin subscription visibility, dashboard announcements, billing paywall UI, billing success verification, feedback unread labels, SSE parsing, memory toasts, chat stream resets, and middleware), E2E plan (Playwright, pending), CI integration, and coverage requirements."
 applyTo: "**/*.test.*, **/*.spec.*, **/tests/**, **/__tests__/**"
 ---
 
@@ -7,11 +7,11 @@ applyTo: "**/*.test.*, **/*.spec.*, **/tests/**, **/__tests__/**"
 
 ## Overview
 
-- Backend unit + integration — Framework: pytest + pytest-asyncio; Scope: API endpoints, services, SM-2 algorithm, data integrity; Coverage: 85.58% last measured (target: 70%); Status: Implemented
+- Backend unit + integration — Framework: pytest + pytest-asyncio; Scope: API endpoints, services, SM-2 algorithm, data integrity; Coverage: 85.62% last measured (target: 70%); Status: Implemented
 - Frontend unit — Framework: Vitest; Scope: Stores, components, hooks, lib, middleware; Coverage: Not configured; Status: Implemented
 - E2E — Framework: Playwright; Scope: Critical user flows; Coverage: Smoke; Status: Pending
 
-CI requires all tests to pass on every push. The canonical pre-push flow synchronizes pinned backend dependencies, formats with `./scripts/format.sh`, runs backend pytest, then frontend lint, TypeScript checking, and Vitest. The suite has 1023 passing backend tests (85.58% last measured coverage, above the 70% threshold) and 517 passing frontend tests across 52 files. Frontend tests cover stores, critical components (VoiceRecorder, AudioPlayer, ProfileSection, UnitCard/UnitDrawer, LanguageSwitcher, TargetLanguageSelector, DashboardAnnouncement, review UI, LanguageBubbles, billing paywall UI, memory toast), Stripe-aware admin subscription visibility, the admin announcement editor, billing success verification, free-write correction matching and lesson-page display, app pages, hooks, lib modules, SSE framing and reset handling, i18n, and middleware. Frontend coverage is not currently reported because Vitest coverage is not configured and `@vitest/coverage-v8` is not installed.
+CI requires all tests to pass on every push. The canonical pre-push flow synchronizes pinned backend dependencies, formats with `./scripts/format.sh`, runs backend pytest, then frontend lint, TypeScript checking, and Vitest. The suite has 1037 passing backend tests (85.62% last measured coverage, above the 70% threshold) and 539 passing frontend tests across 56 files. Frontend tests cover stores, critical components (VoiceRecorder, AudioPlayer, ProfileSection, UnitCard/UnitDrawer, LanguageSwitcher, TargetLanguageSelector, DashboardAnnouncement, review UI, LanguageBubbles, billing paywall UI, memory toast), Stripe-aware admin subscription visibility, the admin announcement editor, billing success verification, free-write correction matching and lesson-page display, word selection and tooltip lifecycle, app pages, hooks, lib modules, SSE framing and reset handling, i18n, and middleware. Frontend coverage is not currently reported because Vitest coverage is not configured and `@vitest/coverage-v8` is not installed.
 
 ---
 
@@ -40,7 +40,7 @@ CI requires all tests to pass on every push. The canonical pre-push flow synchro
 - **`test_lessons.py`** — Lines: 400+. What it covers: Lesson CRUD, exercise answering (multiple_choice, free_write, pronunciation), invalid exercise regeneration, completion flow, progress update on complete
 - **`test_lessons_extra.py`** — Lines: 106. What it covers: Additional lesson scenarios and edge cases
 - **`test_lessons_router.py`** — Lines: —. What it covers: Lesson router: get lesson with exercises, atomic/idempotent completion including rollback and quota-bypass retries, native-language explanation generation/caching, answer exercises (all 4 types), lifecycle, fill-blank sanitization, free-write correction persistence/detail responses, malformed-correction filtering, and unavailable-evaluation fallback.
-- **`test_flashcards.py`** — Lines: 360. What it covers: SM-2 algorithm (all quality levels 0–5, interval and ease-factor transitions), card CRUD, plan-scoped responses, and review-progress attribution to the card's owning plan after a language switch
+- **`test_flashcards.py`** — What it covers: SM-2 transitions, card CRUD, plan-scoped responses and progress, selected-word deduplication before/after AI canonicalization, Unicode whitespace normalization, source promotion, and deletion before/after promotion. SQLite registers a test-only `regexp_replace` function to execute the production query expression; PostgreSQL regex behavior remains a deployment-environment check.
 - **`test_flashcards_extra.py`** — Lines: 201. What it covers: Additional flashcard scenarios and SM-2 edge cases
 - **`test_chat.py`** — Lines: 54. What it covers: SSE streaming chunks, conversation creation and messaging
 - **`test_chat_conversations.py`** — Lines: 254. What it covers: Persistent conversations, message history, conversation management
@@ -80,11 +80,11 @@ CI requires all tests to pass on every push. The canonical pre-push flow synchro
 - **`test_lesson_generator.py`** — Lines: —. What it covers: Lesson generator service: `get_valid_grammar_slugs`, `generate_lesson`, exercise schema validation, fill-blank sanitization, grammar refs filtering, `evaluate_free_write`, `evaluate_pronunciation`, `evaluate_fill_blank` (16 tests, 51%→100% coverage)
 - **`test_listening_service.py`** — Lines: —. What it covers: Listening service DB layer and generation: `structured_output()` generation persistence, language-aware CJK length guidance, `get_available_exercise`, `submit_attempt` (correct/partial/duplicate/replay/not-found), `get_user_history` (empty/attempts/limit/language filter)
 
-**Total: 45 test files, 1023 tests.**
+**Total: 45 test files, 1037 tests.**
 
 ### Coverage
 
-- **Current coverage**: 85.58% last measured (above 70% target)
+- **Current coverage**: 85.62% last measured (above 70% target)
 - **Configured threshold**: 70% (enforced via `pytest --cov-fail-under=70`)
 
 ### Test patterns
@@ -218,7 +218,9 @@ pytest --cov-report=html
 - **`tests/app/lesson-free-write-corrections.test.tsx`** — Tests: 4. Covers answer submission, persisted review annotations, unmatched corrections in the list, theme-aware status/correction classes, learning-text sizes, and fallback states.
 - **`tests/components/ConversationMode.test.tsx`**: 13 passing cases: permission-denial retry (1), permission granted after unmount (1), cleanup and obsolete callbacks for JSON error/onerror/onclose (3), immediate turn blocking and release on listening/turn_complete/STT/LLM/TTS error (5), VAD misfire (1), stale Blob decoding (1), and WAV-send exception with restart (1). VAD, browser media, WebSocket, and playback are mocked; this does not verify real microphone/device behavior in a browser. Manual validation against the remote deployment remains pending.
 
-**Confirmed pre-push result: 517 passed across 52 files, including all 13 ConversationMode cases and 23 free-write matching/page cases. Frontend coverage is not configured/reported.**
+- **Word-save regression coverage**: hook responses after unmount, deferred selections, selection-to-selection races, lesson regeneration/navigation, and transcript/session tooltip dismissal. Lifecycle tests and tooltip integration tests use separate conversation suites.
+
+**Confirmed pre-push result: 539 passed across 56 files, including all 13 ConversationMode lifecycle cases and 23 free-write matching/page cases. Frontend coverage is not configured/reported.**
 
 ### Running tests
 
@@ -274,7 +276,7 @@ CI runs on GitHub Actions, triggered on pushes and pull requests. The project is
 - Backend tests — Steps: `pytest -v`; Threshold: >= 70% coverage
 - Frontend lint — Steps: `npm run lint`; Threshold: Zero errors
 - Frontend typecheck — Steps: `npx tsc --noEmit`; Threshold: Clean output
-- Frontend tests — Steps: `npm run test:run`; Threshold: All tests pass (517 passed across 52 files, including 13 ConversationMode cases and 23 free-write matching/page cases)
+- Frontend tests — Steps: `npm run test:run`; Threshold: All tests pass (539 passed across 56 files, including 13 ConversationMode lifecycle cases and 23 free-write matching/page cases)
 
 **Note**: The backend test job uses SQLite (same as local tests), not PostgreSQL. No Docker services are required for the backend test job.
 

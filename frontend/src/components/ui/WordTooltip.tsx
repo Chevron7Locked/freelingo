@@ -125,10 +125,19 @@ export function useWordSave() {
     }
   }, [clearDismissTimer])
 
-  useEffect(() => clearDismissTimer, [clearDismissTimer])
+  useEffect(
+    () => () => {
+      selectionIdRef.current++
+      hasSelectionRef.current = false
+      clearDismissTimer()
+    },
+    [clearDismissTimer]
+  )
 
   function handleTextSelection(context: string, cefrLevel = 'B1') {
+    const selectionId = ++selectionIdRef.current
     window.setTimeout(() => {
+      if (selectionId !== selectionIdRef.current) return
       const selection = window.getSelection()
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         return
@@ -140,7 +149,6 @@ export function useWordSave() {
 
       const range = selection.getRangeAt(0)
       const rect = range.getBoundingClientRect()
-      selectionIdRef.current++
       clearDismissTimer()
       hasSelectionRef.current = true
       setSelectedContext(context)

@@ -14,8 +14,9 @@ def _known_cefr_level(value: str) -> str:
     return value
 
 
-#: A CEFR level the curriculum actually has units for. An unknown level would
-#: resolve to an empty curriculum and produce a plan with no lessons at all.
+#: A CEFR level the curriculum defines. Membership is checked against the static
+#: level list; whether the resolved language actually ships units for that level is
+#: enforced by ``assert_plan_capacity``, which rejects an empty unit list.
 CefrLevel = Annotated[str, AfterValidator(_known_cefr_level)]
 
 

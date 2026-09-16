@@ -63,9 +63,15 @@ def _types_for(slots: list[dict], unit_id: str) -> list[str]:
     return [s["lesson_type"] for s in slots if s["unit_id"] == unit_id]
 
 
-def _expected_counts(units: list, weeks: int, days: int) -> list[int]:
-    base, remainder = divmod(weeks * days - 1, len(units))
-    return [base + (1 if i < remainder else 0) for i in range(len(units))]
+#: Pinned teaching-slot counts per plan shape, for the eight units every shipped curriculum has.
+#: Hand-derived data, not a copy of the allocator's own formula, so a change to the allocation
+#: rule fails here instead of agreeing with itself.
+EXPECTED_COUNTS = {
+    (4, 5): [3, 3, 3, 2, 2, 2, 2, 2],  # 20 slots − 1 completion test = 19 over 8 units
+    (8, 5): [5, 5, 5, 5, 5, 5, 5, 4],  # 39
+    (12, 4): [6, 6, 6, 6, 6, 6, 6, 5],  # 47
+    (16, 3): [6, 6, 6, 6, 6, 6, 6, 5],  # 47
+}
 
 
 def _unit(n: int, lesson_types: list[str]) -> CurriculumUnit:
@@ -89,7 +95,7 @@ def _unit(n: int, lesson_types: list[str]) -> CurriculumUnit:
 def test_matrix_invariants(language: str, level: str, weeks: int, days: int) -> None:
     """Every language × level × shape keeps the whole allocation contract."""
     units, slots = _slots(language, level, weeks, days)
-    assert units, f"{language} {level} has no curriculum units"
+    assert len(units) == 8, f"{language} {level} ships {len(units)} units, expected 8"
     unit_ids = [u.id for u in units]
 
     # Grid: exactly weeks × days slots, each coordinate once, in reading order.
@@ -106,7 +112,7 @@ def test_matrix_invariants(language: str, level: str, weeks: int, days: int) -> 
     counts = _unit_counts(slots)
     assert list(counts) == unit_ids, "units must appear in curriculum order"
     assert set(counts) == set(unit_ids), "every curriculum unit must be scheduled"
-    expected = _expected_counts(units, weeks, days)
+    expected = EXPECTED_COUNTS[(weeks, days)]
     assert [counts[uid] for uid in unit_ids] == expected
     assert max(counts.values()) - min(counts.values()) <= 1
 
@@ -170,11 +176,23 @@ def test_unit_whose_quota_covers_its_cycle_schedules_every_type() -> None:
     counts = _unit_counts(slots)
     assert [counts[u.id] for u in units] == [6, 6, 6, 6, 6, 6, 6, 5]
 
+    covered: list[str] = []
+    truncated: list[str] = []
     for unit in units:
         types = _types_for(slots, unit.id)
         cycle = unit.lesson_types or ["grammar"]
         if len(types) >= len(cycle):
-            assert set(cycle) <= set(types)
+            # A unit whose quota reaches its type count must schedule every type it declares.
+            assert set(cycle) <= set(types), f"{unit.id} did not schedule part of its own cycle"
+            covered.append(unit.id)
+        else:
+            truncated.append(unit.id)
+
+    # Without this the assertion above is vacuous whenever truncation bites everywhere: some
+    # unit must actually reach its full cycle, and truncation must hit a suffix of the units
+    # (the smallest quotas), never a unit in the middle of the schedule.
+    assert covered, "no unit reached its full cycle, so the equality check proved nothing"
+    assert [u.id for u in units][len(units) - len(truncated) :] == truncated
 
 
 # ── T3: heterogeneous curricula (the old global type_index defect) ────────────
@@ -241,7 +259,10 @@ def test_assert_plan_capacity_boundaries() -> None:
         with pytest.raises(PlanCapacityError):
             assert_plan_capacity(units, weeks, days)
 
-    assert_plan_capacity([], 1, 1)  # no units to cover: nothing to reject
+    # A level that resolves to no curriculum units cannot be taught at all.
+    with pytest.raises(PlanCapacityError) as exc:
+        assert_plan_capacity([], 12, 4)
+    assert "no curriculum units" in str(exc.value)
 
 
 def test_capacity_message_names_a_workable_example() -> None:
@@ -473,16 +494,6 @@ def test_reported_de_a2_shape_cannot_recur() -> None:
     assert counts.most_common(1)[0][1] <= 7
     assert min(counts.values()) >= 4
     assert [counts[u.id] for u in units] != [15, 5, 5, 5, 5, 5, 5, 2]
-
-
-@pytest.mark.parametrize(("weeks", "days"), SHAPES)
-def test_no_shape_omits_a_unit_or_exceeds_imbalance(weeks: int, days: int) -> None:
-    for language in LANGUAGES:
-        for level in CEFR_LEVELS:
-            units, slots = _slots(language, level, weeks, days)
-            counts = _unit_counts(slots)
-            assert set(counts) == {u.id for u in units}, f"{language} {level} {weeks}×{days}"
-            assert max(counts.values()) - min(counts.values()) <= 1
 
 
 # ── T9: purity ────────────────────────────────────────────────────────────────

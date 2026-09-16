@@ -15,16 +15,17 @@ class PlanCapacityError(ValueError):
 
 
 def assert_plan_capacity(units: list[object], total_weeks: int, days_per_week: int) -> None:
-    """Reject grids that would leave a curriculum unit without a single lesson.
+    """Reject requests that cannot teach the resolved curriculum.
 
     The final grid coordinate is reserved for the level completion test, so the
-    capacity available to teaching is ``total_weeks * days_per_week - 1``. A plan
-    below that floor would silently omit units (issue #316), which is why both
-    plan-creation entry points call this before mutating any state.
+    capacity available to teaching is ``total_weeks * days_per_week - 1``. A grid
+    below that floor would silently omit units (issue #316), and a level with no
+    units at all would produce a lesson-less plan, which is why both plan-creation
+    entry points call this before mutating any state.
 
     Raises:
-        PlanCapacityError: dimensions are not positive, or the grid is too short
-            to cover every curriculum unit.
+        PlanCapacityError: dimensions are not positive, the level resolved to no
+            curriculum units, or the grid is too short to cover every unit.
     """
     if total_weeks < 1 or days_per_week < 1:
         raise PlanCapacityError(
@@ -34,16 +35,23 @@ def assert_plan_capacity(units: list[object], total_weeks: int, days_per_week: i
 
     teaching_slots = total_weeks * days_per_week - 1
     unit_count = len(units)
-    if unit_count == 0 or teaching_slots >= unit_count:
+    if unit_count == 0:
+        # A level with no curriculum units cannot be taught at all. Rejecting it here keeps
+        # "never persist a plan that omits units" true in the layer that owns it, instead of
+        # relying on the request schema alone.
+        raise PlanCapacityError(
+            "This level has no curriculum units, so no study plan can be built for it."
+        )
+    if teaching_slots >= unit_count:
         return
 
     weeks_needed = -(-(unit_count + 1) // days_per_week)  # ceil, keeping days_per_week
     raise PlanCapacityError(
         f"This plan is too short to cover all {unit_count} curriculum units: "
         f"{total_weeks} weeks × {days_per_week} days leaves {max(teaching_slots, 0)} "
-        f"teaching slot(s) once the final completion test is reserved. Choose at least "
-        f"{unit_count + 1} teaching days — for example {weeks_needed} weeks × "
-        f"{days_per_week} days."
+        f"teaching slot(s) once the final completion test is reserved. Raise the duration to at "
+        f"least {unit_count + 1} teaching days ({weeks_needed} weeks × {days_per_week} days) — "
+        f"at that size each unit gets a single lesson, so more room gives better coverage."
     )
 
 

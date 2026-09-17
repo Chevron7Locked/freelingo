@@ -6,6 +6,11 @@ This is the canonical current development version. Its publication state and dat
 `CHANGELOG.md`; the canonical value may therefore correspond to a changelog section marked
 `Unreleased`.
 
+The study-plan unit distribution fix (#316) ships under `Fixed` in the next release. It carries no
+version bump, sidebar or version-badge change, What's New entry, or locale change unless the
+maintainer asks for one. It applies to plans created after it ships; plans already persisted keep
+their stored schedule.
+
 ## Rules
 
 - Use Semantic Versioning.

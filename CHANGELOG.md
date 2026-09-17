@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Study plan unit distribution (#316)**: new plans no longer front-load the first unit (15 of 47 lessons on one grammar topic in the reported 12-week × 4-day case) or leave the final units without lessons. `distribute_units()` gives every curriculum unit a fair quota of the teaching slots, spreads the remainder one slot each across the earliest units, and fills each quota by cycling that unit's own lesson types in order. Types beyond a unit's quota are not scheduled, so a short plan can be missing a lesson type altogether — a 4-week × 5-day B1 Spanish plan contains no writing and no review lesson in any unit, and the synthetic completion-test slot is not a stand-in for them. Requests are now rejected before any state change when the dimensions are below 1, when the level names no curriculum units, or when the grid cannot give every unit at least one lesson; the previous behaviour saved an incomplete plan instead. Existing plans are unchanged.
+
 ## [1.9.10] - 2026-09-15
 
 ### Added

@@ -153,63 +153,82 @@ def distribute_units(
     days_per_week: int,
     target_language: str = "en-GB",
 ) -> list[dict]:
-    """Distribute curriculum units across lesson slots."""
+    """Distribute curriculum units across the plan's lesson slots.
+
+    The final grid coordinate is reserved for the level completion test. The
+    remaining ``total_weeks * days_per_week - 1`` teaching slots are split into
+    fair per-unit quotas: every curriculum unit receives
+    ``floor(teaching_slots / unit_count)`` slots and the remainder is handed out
+    one slot each to the earliest (prerequisite-first) units, so no unit differs
+    from another by more than one slot.
+
+    Each unit's quota is filled by cycling through that unit's own
+    ``lesson_types`` in order. When a quota is not a multiple of the unit's type
+    count, the final cycle is truncated positionally: types after the truncation
+    point receive no slot in that unit. A quota of zero schedules no slot for
+    that unit — callers are expected to reject such plans before reaching here
+    (see ``assert_plan_capacity`` in ``services/study_plan_generator.py``).
+
+    The allocation is deterministic: identical inputs produce identical output.
+    """
     i18n = _I18N.get(target_language) or _I18N.get(target_language.split("-")[0], _I18N["en-GB"])
 
     total_slots = total_weeks * days_per_week
-    lesson_slots = max(1, total_slots - 1)
+    # Completion test always owns exactly the final slot; everything else teaches.
+    teaching_slots = total_slots - 1
+    test_slot = total_slots - 1
 
-    lesson_types_per_unit = [lt for u in units for lt in u.lesson_types]
-
-    if not lesson_types_per_unit:
+    # ── Fair unit quotas (issue #316) ────────────────────────────────
+    # Every unit gets a base share of the teaching slots; the remainder is
+    # spread one each across the earliest (prerequisite-first) units. No
+    # unit may accumulate surplus while later units are truncated.
+    n_units = len(units)
+    if n_units == 0:
         return []
+    base_quota, remainder = divmod(teaching_slots, n_units)
 
+    # ── Lay slots into the grid in curriculum order ──────────────────
+    # Each unit's quota is filled by cycling its own lesson_types; a quota
+    # that is not a multiple of the type count ends on a truncated cycle,
+    # so the types after that point are not scheduled for that unit.
     slots: list[dict] = []
-    unit_index = 0
-    type_index = 0
-
-    for slot in range(lesson_slots):
-        unit = units[min(unit_index, len(units) - 1)]
-        lt_list = unit.lesson_types
-        lt = lt_list[type_index % len(lt_list)] if lt_list else "grammar"
-
-        slots.append(
-            {
-                "week": slot // days_per_week + 1,
-                "day": slot % days_per_week + 1,
-                "unit_id": unit.id,
-                "unit_title": unit.title,
-                "lesson_type": lt,
-                "title": i18n["lesson_title"].format(title=unit.title, n=type_index + 1),
-                "objectives": (unit.competency_checklist[:2] if unit.competency_checklist else []),
-                "estimated_minutes": 25,
-                "grammar_points": (unit.grammar_points[:2] if unit.grammar_points else []),
-                "vocabulary_set_ids": (
-                    unit.vocabulary_set_ids[:1] if unit.vocabulary_set_ids else []
-                ),
-            }
-        )
-
-        type_index += 1
-        if type_index % len(lt_list) == 0 and unit_index < len(units) - 1:
-            remaining_slots = lesson_slots - slot - 1
-            remaining_units = len(units) - unit_index - 1
-            if remaining_slots <= remaining_units * len(units[unit_index + 1].lesson_types):
-                unit_index += 1
-
-    last_unit = units[-1]
     level = units[0].level
+    for unit_index, unit in enumerate(units):
+        quota = base_quota + (1 if unit_index < remainder else 0)
+        lt_list = unit.lesson_types or ["grammar"]
+        cycle = len(lt_list)
+        gps = unit.grammar_points or []
+        checklist = unit.competency_checklist or []
+        vocab_ids = unit.vocabulary_set_ids or []
+        for per_unit_index in range(quota):
+            lt = lt_list[per_unit_index % cycle]
+            slot = len(slots)
+            slots.append(
+                {
+                    "week": slot // days_per_week + 1,
+                    "day": slot % days_per_week + 1,
+                    "unit_id": unit.id,
+                    "unit_title": unit.title,
+                    "lesson_type": lt,
+                    "title": i18n["lesson_title"].format(title=unit.title, n=per_unit_index + 1),
+                    "objectives": checklist[:2],
+                    "estimated_minutes": 25,
+                    "grammar_points": gps[:2],
+                    "vocabulary_set_ids": vocab_ids[:1],
+                }
+            )
+
     slots.append(
         {
-            "week": total_weeks,
-            "day": days_per_week,
+            "week": test_slot // days_per_week + 1,
+            "day": test_slot % days_per_week + 1,
             "unit_id": "completion-test",
             "unit_title": i18n["test_unit_title"].format(level=level),
             "lesson_type": "review",
             "title": i18n["test_title"].format(level=level),
             "objectives": i18n["test_objectives"],
             "estimated_minutes": 45,
-            "grammar_points": last_unit.grammar_points,
+            "grammar_points": units[-1].grammar_points,
             "vocabulary_set_ids": [],
         }
     )

@@ -43,8 +43,11 @@ WebSocket session starts.
 
 ## Study plans and lessons
 
-`study_plan_generator.py` is deterministic. It traverses each curriculum unit's declared
-`lesson_types`, distributes one slot per plan day, and reserves the final slot for the completion test.
+`study_plan_generator.py` is deterministic. It reserves the final grid coordinate for the completion test
+and splits the remaining teaching slots into fair per-unit quotas, fills each quota by cycling that unit's
+own `lesson_types` in order, and truncates a unit's final cycle positionally when its quota is not a
+multiple of its type count. `assert_plan_capacity()` rejects a grid too short to give every curriculum
+unit a teaching slot; both plan-creation entry points call it before creating or deactivating anything.
 
 `lesson_generator.py` uses the LLM within curriculum, CEFR, target-language, and native-language
 constraints. It:

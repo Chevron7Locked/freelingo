@@ -105,7 +105,7 @@ Placement assessment, plan creation, post-assessment voice trial, and end-of-lev
 - **POST `/submit`** — Rate limit: 10/min. LLM-backed assessment submission endpoint retained alongside the deterministic bank/evaluate flow.
 - **POST `/evaluate`** — Rate limit: 60/min. Deterministic CEFR evaluation (no LLM — groups by difficulty). Body: `{answers: [{question_id, skill, difficulty, correct, dont_know?}]}`. `dont_know` defaults to `false` and marks a declared knowledge gap, which is never scored as correct.
 - **POST `/free-write`** — Rate limit: 10/min. Evaluates free-write text for CEFR placement through LLM JSON parsing.
-- **POST `/complete`** — Rate limit: 10/min. Persists results and creates a StudyPlan. When `STRIPE_ENABLED=true`, the user is not subscribed, and `assessment_voice_trial_used=false`, the response includes `voice_trial: {available, token, duration_seconds, expires_in_seconds}` for a one-time voice demo. `duration_seconds` comes from `ASSESSMENT_VOICE_TRIAL_DURATION_SECONDS` (default `300`).
+- **POST `/complete`** — Rate limit: 10/min. Persists results and creates a StudyPlan. Rejects the same invalid dimensions and undersized grids as `POST /api/study-plan/generate` (422 and 400), before any state change. When `STRIPE_ENABLED=true`, the user is not subscribed, and `assessment_voice_trial_used=false`, the response includes `voice_trial: {available, token, duration_seconds, expires_in_seconds}` for a one-time voice demo. `duration_seconds` comes from `ASSESSMENT_VOICE_TRIAL_DURATION_SECONDS` (default `300`).
 - **POST `/voice-trial`** — Rate limit: 10/min. Body: `{target_language?}`. Regenerates a fresh post-assessment voice demo token for the user's active study plan in that language when `STRIPE_ENABLED=true`, the user is not subscribed, and `assessment_voice_trial_used=false`. Used when the student previously skipped the demo and returns to the assessment page.
 - **GET `/level-test/questions/{plan_id}`** — Rate limit: 5/min. Generates 20-question level test (LLM, constrained to studied content)
 - **POST `/level-test/submit`** — Rate limit: 10/min. Submits level test answers → score + recommendation
@@ -148,7 +148,7 @@ Auth required (`get_current_user`). Serves canonical backend vocabulary data org
 ## Study Plan — `/api/study-plan`
 
 - **GET `/current`** — Rate limit: 60/min. User's active plan with curriculum progress
-- **POST `/generate`** — Rate limit: 10/min. Creates new plan from CEFR level, goals, and duration
+- **POST `/generate`** — Rate limit: 10/min. Creates new plan from CEFR level, goals, and duration. Returns 422 when `duration_weeks` or `days_per_week` is below 1 or `cefr_level` is not a level the curriculum covers, and 400 when `duration_weeks × days_per_week − 1` is smaller than the level's curriculum unit count (the detail names the minimum). A rejected request creates no plan, no language row, and does not deactivate the current plan.
 - **GET `/today`** — Rate limit: 20/min. Today's lessons; auto-generates missing content via LLM on first access; auto-advances `progress_day` when all lessons for the current day are complete. Returns `plan_id`, `cefr_level`, `lessons`, `progress_day`, `total_days`, `pending_count`.
 - **POST `/skip-day`** — Rate limit: 60/min. Increments `progress_day` by 1 (capped at `total_days`). Returns `{progress_day, total_days}`.
 - **GET `/pending-lessons`** — Rate limit: 60/min. Returns incomplete lessons from days before `progress_day` (generated but not completed).

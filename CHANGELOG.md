@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.9.15] - Unreleased
 
+### Changed
+
+- **Short-plan lesson coverage**: each unit follows its own lesson-type cycle, with incomplete cycles cut off at the end. Short plans can therefore omit dedicated modalities: a 4-week × 5-day B1 Spanish plan has no unit writing or review lessons, and the reserved completion-test slot does not replace them.
+
 ### Fixed
 
-- **Study plan unit distribution (#316)**: new plans no longer front-load the first unit (15 of 47 lessons on one grammar topic in the reported 12-week × 4-day case) or leave the final units without lessons. `distribute_units()` gives every curriculum unit a fair quota of the teaching slots, spreads the remainder one slot each across the earliest units, and fills each quota by cycling that unit's own lesson types in order. Types beyond a unit's quota are not scheduled, so a short plan can be missing a lesson type altogether — a 4-week × 5-day B1 Spanish plan contains no writing and no review lesson in any unit, and the synthetic completion-test slot is not a stand-in for them. Requests are now rejected before any state change when the dimensions are below 1, when the level names no curriculum units, or when the grid cannot give every unit at least one lesson; the previous behaviour saved an incomplete plan instead. Existing plans are unchanged.
+- **Study-plan distribution**: new plans spread teaching lessons evenly across all curriculum units, preserve unit order, restart each unit's own lesson-type cycle, and reserve the final position for the completion test. Earlier units no longer consume slots needed by later units. Existing plans keep their stored schedules.
+- **Study-plan request validation**: plan creation and assessment completion reject non-positive dimensions, unknown CEFR levels, empty curricula, and schedules too short to cover every unit before creating language records or changing plans. Capacity guidance distinguishes teaching lessons from the completion test and gives a whole-week minimum that guarantees at least one lesson per unit.
 
 ## [1.9.10] - 2026-09-15
 

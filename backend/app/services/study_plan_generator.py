@@ -49,9 +49,10 @@ def assert_plan_capacity(units: list[object], total_weeks: int, days_per_week: i
     raise PlanCapacityError(
         f"This plan is too short to cover all {unit_count} curriculum units: "
         f"{total_weeks} weeks × {days_per_week} days leaves {max(teaching_slots, 0)} "
-        f"teaching slot(s) once the final completion test is reserved. Raise the duration to at "
-        f"least {unit_count + 1} teaching days ({weeks_needed} weeks × {days_per_week} days) — "
-        f"at that size each unit gets a single lesson, so more room gives better coverage."
+        f"teaching slot(s) once the final completion test is reserved. Allow at least "
+        f"{unit_count + 1} plan days in total ({unit_count} lessons + 1 completion test). "
+        f"Use at least {weeks_needed} weeks × {days_per_week} days to give each unit "
+        "at least one lesson; more room gives better coverage."
     )
 
 

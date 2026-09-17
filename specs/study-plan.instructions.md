@@ -33,9 +33,10 @@ The partial unique index on `user_language_id` where `is_active=true` enforces o
 language track.
 
 The UI offers duration presets 4, 8, 12, and 16 weeks and derives 5, 5, 4, and 3 days per week. Request
-schemas require `duration_weeks` and `days_per_week` to be at least 1 and `cefr_level` to be a level the
-curriculum has units for, and they reject any grid too short to give every curriculum unit a lesson; they
-do not enforce the preset sets themselves.
+schemas require `duration_weeks` and `days_per_week` to be at least 1 and `cefr_level` to be one of
+`A1`–`C2`; they do not enforce the preset sets themselves. The service's `assert_plan_capacity()`
+separately rejects an empty resolved curriculum or a grid too short to give every curriculum unit a
+lesson. Both creation endpoints run this check before creating a language row or changing plans.
 
 `current_unit` is not advanced by current production flows and normally remains the first unit for the
 life of a plan. Frontend uses it for active-unit presentation, so it must not be treated as reliable
@@ -61,7 +62,10 @@ lesson of its first declared type.
 
 A plan whose grid cannot give every unit at least one teaching slot, or whose level resolves to no
 curriculum units, is rejected before any state change, as is a request naming an unknown CEFR level
-(see `api-endpoints.instructions.md`). It does not call an LLM.
+(see `api-endpoints.instructions.md`). Capacity-error guidance distinguishes teaching lessons from the
+reserved completion test and rounds the minimum duration up to whole weeks at the requested frequency.
+That duration guarantees at least one lesson per unit, not a complete cycle. Generation does not call
+an LLM.
 
 Each slot contains week/day, type, localized title/objectives, estimated duration, unit ID, grammar
 slugs, and vocabulary-set IDs. The generated grid is the source of scheduled future slots.

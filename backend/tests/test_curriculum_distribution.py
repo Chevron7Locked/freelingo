@@ -14,6 +14,7 @@ Plans too short to give every unit a slot are rejected before any state changes
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 
 import pytest
@@ -21,6 +22,7 @@ from sqlalchemy import select
 
 from app.data._types import CurriculumUnit
 from app.data.curriculum import CEFR_LEVELS, distribute_units, get_curriculum_units
+from app.models.study_plan import StudyPlan
 from app.models.user_language import UserLanguage
 from app.services.study_plan_generator import PlanCapacityError, assert_plan_capacity
 
@@ -265,12 +267,17 @@ def test_assert_plan_capacity_boundaries() -> None:
     assert "no curriculum units" in str(exc.value)
 
 
-def test_capacity_message_names_a_workable_example() -> None:
+@pytest.mark.parametrize("days", [3, 4])
+def test_capacity_message_names_a_workable_example(days: int) -> None:
     units = get_curriculum_units("A1", "de-DE")
     with pytest.raises(PlanCapacityError) as exc:
-        assert_plan_capacity(units, 2, 4)
-    # 2 weeks × 4 days leaves 7 teaching slots; 3 weeks × 4 days would fit.
-    assert "3 weeks × 4 days" in str(exc.value)
+        assert_plan_capacity(units, 2, days)
+    # 3 × 3 fits exactly; 3 × 4 rounds up and gives some units more than one lesson.
+    message = str(exc.value)
+    assert "9 plan days in total (8 lessons + 1 completion test)" in message
+    assert f"3 weeks × {days} days" in message
+    assert "at least one lesson" in message
+    assert_plan_capacity(units, 3, days)
 
 
 def test_distribute_units_without_units_returns_no_slots() -> None:
@@ -328,14 +335,22 @@ async def test_both_entry_points_reject_undersized_plans(client, test_user, endp
     assert "curriculum units" in resp.json()["detail"]
 
 
-async def test_rejected_request_does_not_deactivate_the_existing_plan(
-    client, test_user_with_plan, db_session
+@pytest.mark.parametrize("endpoint", ["/api/study-plan/generate", "/api/assessment/complete"])
+async def test_rejected_request_preserves_the_existing_plan(
+    client, test_user_with_plan, db_session, endpoint: str
 ) -> None:
     user, headers = test_user_with_plan
+    plans_query = select(StudyPlan.__table__).where(StudyPlan.user_id == user.id)
+    before = (await db_session.execute(plans_query)).mappings().all()
+    assert len(before) == 1
+    assert before[0]["is_active"] is True
+    assert before[0]["cefr_level"] == "A1"
+
     resp = await client.post(
-        "/api/study-plan/generate",
+        endpoint,
         json={
-            "cefr_level": "A1",
+            "cefr_level": "B1",
+            "goals": ["writing"],
             "duration_weeks": 2,
             "days_per_week": 4,
             "target_language": "en-US",
@@ -344,25 +359,20 @@ async def test_rejected_request_does_not_deactivate_the_existing_plan(
     )
     assert resp.status_code == 400
 
-    from app.models.study_plan import StudyPlan
-
-    plans = (
-        (
-            await db_session.execute(
-                select(StudyPlan).where(StudyPlan.user_id == user.id, StudyPlan.is_active.is_(True))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert len(plans) == 1, "a rejected request must leave the active plan untouched"
+    # Compare database values, including ID, level, goals and active state. Counting
+    # active plans alone would miss a replacement plan or overwritten assessment data.
+    after = (await db_session.execute(plans_query)).mappings().all()
+    assert after == before, "a rejected request must neither change nor create a plan"
 
 
-async def test_rejected_request_creates_no_user_language_row(client, test_user, db_session) -> None:
+@pytest.mark.parametrize("endpoint", ["/api/study-plan/generate", "/api/assessment/complete"])
+async def test_rejected_request_creates_no_user_language_row(
+    client, test_user, db_session, endpoint: str
+) -> None:
     """The capacity check runs before ensure_user_language, which flushes a row."""
     user, headers = test_user
     resp = await client.post(
-        "/api/study-plan/generate",
+        endpoint,
         json={
             "cefr_level": "A1",
             "duration_weeks": 2,
@@ -386,6 +396,38 @@ async def test_rejected_request_creates_no_user_language_row(client, test_user, 
         .all()
     )
     assert rows == []
+    plan_ids = (
+        (await db_session.execute(select(StudyPlan.id).where(StudyPlan.user_id == user.id)))
+        .scalars()
+        .all()
+    )
+    assert plan_ids == []
+
+
+async def test_rejected_assessment_preserves_the_session(client, test_user, mock_redis) -> None:
+    user, headers = test_user
+    session_key = f"assessment:{user.id}:en-US"
+    session = json.dumps(
+        {
+            "session_id": "existing-assessment",
+            "target_language": "en-US",
+            "quiz": {"questions": [{"id": 1, "question": "Choose a verb.", "correct_answer": "A"}]},
+        }
+    )
+    await mock_redis.setex(session_key, 3600, session)
+
+    resp = await client.post(
+        "/api/assessment/complete",
+        json={
+            "cefr_level": "B1",
+            "duration_weeks": 2,
+            "days_per_week": 4,
+            "target_language": "en-US",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert await mock_redis.get(session_key) == session
 
 
 async def test_boundary_plan_covers_every_unit_exactly_once(client, test_user) -> None:

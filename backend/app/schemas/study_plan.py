@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, field_serializer
 
@@ -95,6 +95,20 @@ class TodayLesson(BaseModel):
     is_completed: bool = False
 
 
+class CompletionState(BaseModel):
+    """End-of-plan assessment state derived from the persisted study plan.
+
+    ``in_progress``: the learner has not reached the reserved final slot.
+    ``ready``: the final slot is reached and the real level test is available.
+    ``taken``: the final slot is reached and an assessment result exists.
+    """
+
+    state: Literal["in_progress", "ready", "taken"]
+    score: float | None = None
+    recommendation: str | None = None
+    next_level: str | None = None
+
+
 class TodayResponse(BaseModel):
     plan_id: int
     cefr_level: str
@@ -102,6 +116,7 @@ class TodayResponse(BaseModel):
     progress_day: int = 0
     total_days: int = 0
     pending_count: int = 0
+    completion: CompletionState
 
 
 class PendingLessonResponse(BaseModel):

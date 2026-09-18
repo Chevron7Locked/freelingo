@@ -15,6 +15,16 @@ from app.data._types import CEFRLevel, CurriculumUnit, LessonType  # noqa: F401
 
 CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
+#: Unit id of the synthetic final slot reserved for the end-of-level assessment.
+COMPLETION_UNIT_ID = "completion-test"
+
+#: Legacy unit id used by plans generated before v1.7.0 for the same reserved
+#: final slot. Stored plans keep their schedule, so both ids are recognized.
+LEGACY_COMPLETION_UNIT_ID = "level-test"
+
+#: Every unit id that identifies the reserved end-of-level assessment slot.
+COMPLETION_UNIT_IDS = frozenset({COMPLETION_UNIT_ID, LEGACY_COMPLETION_UNIT_ID})
+
 _LESSON_TYPES: tuple[str, ...] = get_args(LessonType)
 
 _LANG_MODULES: dict[str, str] = {
@@ -293,7 +303,7 @@ def distribute_units(
         {
             "week": test_slot // days_per_week + 1,
             "day": test_slot % days_per_week + 1,
-            "unit_id": "completion-test",
+            "unit_id": COMPLETION_UNIT_ID,
             "unit_title": i18n["test_unit_title"].format(level=level),
             "lesson_type": "review",
             "title": i18n["test_title"].format(level=level),

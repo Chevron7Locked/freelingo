@@ -82,7 +82,42 @@ day  = (progress_day % days_per_week) + 1
 total_days = duration_weeks * days_per_week
 ```
 
-The plan is exhausted when `progress_day >= total_days`.
+The plan is exhausted when `progress_day >= total_days`. Reaching the final position
+(`progress_day >= total_days - 1`) with no pending lesson from a passed day is what unlocks the
+end-of-level assessment; see the completion section below.
+
+## End-of-plan completion and assessment eligibility
+
+The final `completion-test` slot is the real end-of-level assessment position, not a teachable lesson.
+Plans generated before v1.7.0 stored that same reserved slot as `unit_id="level-test"`; both ids
+identify the reserved position and receive identical treatment.
+Eligibility is derived from the persisted plan by `completion_service.py` and is the same everywhere:
+
+- The learner is eligible after reaching the final position (`progress_day >= total_days - 1`) with no
+  lesson from a passed day still incomplete. Skipped lessons keep the assessment locked until
+  completed; they remain reachable through `/pending-lessons`.
+- Unit competency is informational; it does not gate the assessment. The test's own recommendation
+  handles reinforcement.
+- A persisted result (`completion_test_taken`) keeps the flow eligible, so an existing submission is
+  never refused.
+- Language and ownership come from the plan's persisted `user_language_id`; the active learning
+  language does not reassign the resource.
+
+`GET /api/study-plan/today` reports this state in the `completion` field of every response:
+`in_progress` before the final position or while a passed-day lesson is pending, `ready` at the final
+position without a result and without pending lessons, and `taken` at the final position with a
+result. When taken, the state also carries the persisted `score`, `recommendation`, and `next_level`.
+The dashboard and My Plan use this field as the single source of truth for the end-of-plan action. The
+assessment endpoints enforce eligibility server-side; see `learning-resources.instructions.md` and
+`api-endpoints.instructions.md`.
+
+The reserved slot never runs the ordinary lesson generator. A legacy lesson persisted for that slot
+before this contract remains readable: it is returned while the assessment is pending and is neither
+rewritten nor deleted. Once a result exists, the final slot presents only the result. A legacy result
+persisted before the final position does not fabricate completion: `GET /api/study-plan/today` still
+reports `in_progress`, the stored result remains visible in My Plan, and the plan keeps running until
+the final position is reached. Taking the assessment does not rewrite `progress_day`, and no plan path
+mutates it to fabricate completion.
 
 ## Lazy lesson generation
 
@@ -93,15 +128,18 @@ The plan is exhausted when `progress_day >= total_days`.
 3. Advance across consecutive current days that already contain generated lessons and whose lessons
    are all complete.
 4. Persist `progress_day` if it advanced.
-5. Count generated incomplete lessons from passed days as pending.
+5. Count generated incomplete lessons from passed days as pending, excluding the reserved final slot
+   once a result exists.
 6. Return no current lessons when the plan is exhausted.
 7. Locate the current scheduled slot and reuse a lesson with the same stable identity when present.
-8. Otherwise generate lesson content through the LLM and persist the lesson and exercises.
+8. Otherwise generate lesson content through the LLM and persist the lesson and exercises, except for
+   the reserved final slot (`completion-test`, or the legacy `level-test` id), which never generates a
+   substitute lesson.
 9. On uniqueness race, roll back and load the row created by the competing request.
 10. On other generation failure, log and exclude that slot from the response.
 
-The response contains `plan_id`, `cefr_level`, `progress_day`, `total_days`, `pending_count`, and
-`lessons`. Every returned lesson contains ID, schedule metadata, objectives, unit ID, and
+The response contains `plan_id`, `cefr_level`, `progress_day`, `total_days`, `pending_count`,
+`completion`, and `lessons`. Every returned lesson contains ID, schedule metadata, objectives, unit ID, and
 `is_completed`.
 
 A generation failure does not return a placeholder lesson with `id: null`. If every current slot fails,
@@ -169,15 +207,19 @@ EMA. Detailed XP and mastery rules live in `learning-resources.instructions.md`.
 
 ## Frontend integration
 
-Dashboard loads progress and `/today` in parallel. It chooses the first returned incomplete lesson as
-the next action, exposes generated pending lessons, and offers skip when current lessons exist.
+Dashboard loads progress and `/today` in parallel. It prioritizes the end-of-plan `completion` state:
+`taken` shows the persisted result with the next-level or My Plan action, `ready` directs to the real
+level test, and otherwise it chooses the first returned incomplete lesson as the next action. It
+exposes generated pending lessons and offers skip when current lessons exist.
 
 Current Dashboard code treats any non-success `/today` response as `hasPlan=false`, not only 404. This
 can show Assessment after a server error and must not be interpreted as a backend absence guarantee.
 
 My Plan combines scheduled slots from `generated_plan` with persisted `/lessons`, `/today`, and
 `/pending-lessons` metadata. Current generated lessons can start, passed incomplete lessons can resume,
-completed lessons open read-only review, and ungenerated future slots have no action.
+completed lessons open read-only review, and ungenerated future slots have no action. Its level-test
+node and banner are gated by the backend `completion` state, not by unit competency: `ready` opens the
+real assessment and `taken` shows the persisted result.
 
 The lesson page disables answer/regeneration/completion controls for completed lessons. After first
 completion it refreshes `/today`, can show day-complete state, refreshes freemium status, and may trigger

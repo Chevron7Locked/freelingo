@@ -10,7 +10,7 @@ from app.core.app_logger import get_logger
 from app.core.database import get_db
 from app.core.deps import get_active_study_plan, get_current_user
 from app.core.limiter import limiter
-from app.data.curriculum import get_curriculum_units
+from app.data.curriculum import COMPLETION_UNIT_IDS, get_curriculum_units
 from app.models.lesson import Exercise, Lesson
 from app.models.study_plan import StudyPlan
 from app.models.user import User
@@ -23,6 +23,7 @@ from app.schemas.study_plan import (
     TodayLesson,
     TodayResponse,
 )
+from app.services.completion_service import get_completion_state
 from app.services.lesson_generator import generate_lesson
 from app.services.study_plan_generator import (
     PlanCapacityError,
@@ -179,13 +180,21 @@ async def get_today_lessons(
     if plan.progress_day != original_progress:
         await db.commit()
 
-    # Count incomplete lessons from days the plan has already passed
+    # Count incomplete lessons from days the plan has already passed. Once the
+    # assessment result exists, the reserved final slot is no longer a pending
+    # item, matching GET /pending-lessons.
     pending_count = sum(
         1
         for lsn in all_lessons
         if not lsn.is_completed
         and (lsn.week_number - 1) * plan.days_per_week + (lsn.day_number - 1) < plan.progress_day
+        and not (plan.completion_test_taken and lsn.unit_id in COMPLETION_UNIT_IDS)
     )
+
+    # End-of-plan state derived from the persisted plan. Computed after
+    # auto-advance so reaching the final slot is reflected immediately; skipped
+    # lessons still pending keep the assessment locked.
+    completion = get_completion_state(plan, has_pending=pending_count > 0)
 
     if plan.progress_day >= total_days:
         return TodayResponse(
@@ -195,6 +204,7 @@ async def get_today_lessons(
             progress_day=plan.progress_day,
             total_days=total_days,
             pending_count=pending_count,
+            completion=completion,
         )
 
     current_week = (plan.progress_day // plan.days_per_week) + 1
@@ -226,6 +236,7 @@ async def get_today_lessons(
             progress_day=plan.progress_day,
             total_days=total_days,
             pending_count=pending_count,
+            completion=completion,
         )
 
     days = week["days"] if isinstance(week, dict) else week.days
@@ -268,9 +279,10 @@ async def get_today_lessons(
                     vocabulary_set_ids = cu.vocabulary_set_ids
                     break
 
-        # Auto-generate the lesson if it doesn't exist yet
+        # Auto-generate the lesson if it doesn't exist yet. The reserved final
+        # slot is the real assessment: it never generates a substitute lesson.
         plan_id = plan.id  # cache before any rollback that would expire the ORM object
-        if lesson_id is None:
+        if lesson_id is None and d_unit_id not in COMPLETION_UNIT_IDS:
             previous_lessons = [
                 {
                     "title": sibling.title,
@@ -347,6 +359,11 @@ async def get_today_lessons(
             except Exception:
                 logger.exception("Failed to generate or persist lesson for plan %s", plan_id)
 
+        # A legacy synthetic lesson for the final slot stays reachable while the
+        # assessment is pending; once a result exists, the slot is only the result.
+        if d_unit_id in COMPLETION_UNIT_IDS and completion.state == "taken":
+            continue
+
         if lesson_id is not None:
             today_lessons.append(
                 TodayLesson(
@@ -369,6 +386,7 @@ async def get_today_lessons(
         progress_day=plan.progress_day,
         total_days=total_days,
         pending_count=pending_count,
+        completion=completion,
     )
 
 
@@ -398,10 +416,13 @@ async def get_pending_lessons(
             Lesson.is_completed.is_(False),
         )
     )
+    # Once the assessment result exists, the legacy final-slot lesson is no
+    # longer a pending item: the slot presents only the result.
     pending = [
         lsn
         for lsn in incomplete_result.scalars().all()
         if (lsn.week_number - 1) * plan.days_per_week + (lsn.day_number - 1) < plan.progress_day
+        and not (plan.completion_test_taken and lsn.unit_id in COMPLETION_UNIT_IDS)
     ]
     return pending
 

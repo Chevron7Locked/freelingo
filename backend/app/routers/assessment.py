@@ -35,6 +35,11 @@ from app.services.assessment import (
     generate_level_test_questions,
 )
 from app.services.assessment_voice_trial import create_assessment_voice_trial_token
+from app.services.completion_service import (
+    has_pending_lessons,
+    is_level_test_eligible,
+    next_cefr_level,
+)
 from app.services.language_helpers import get_language_name
 from app.services.llm_adapter import (
     LLMError,
@@ -560,6 +565,15 @@ async def get_level_test_questions(
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Study plan not found.")
 
+    if not is_level_test_eligible(plan, has_pending=await has_pending_lessons(db, plan)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Level test unlocks at the final day of the study plan once every "
+                "pending lesson is completed."
+            ),
+        )
+
     # Collect all grammar points and vocabulary sets from the curriculum
     units = get_curriculum_units(plan.cefr_level, plan.target_language)
     grammar_points: list[str] = []
@@ -612,6 +626,15 @@ async def submit_level_test(
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Study plan not found.")
 
+    if not is_level_test_eligible(plan, has_pending=await has_pending_lessons(db, plan)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Level test unlocks at the final day of the study plan once every "
+                "pending lesson is completed."
+            ),
+        )
+
     # Use the same deterministic evaluator — treat all answers as one skill bucket
     assessment = evaluate_adaptive_quiz(data.answers)
     score = assessment.score
@@ -623,10 +646,7 @@ async def submit_level_test(
     else:
         recommendation = "repeat"
 
-    from app.data.curriculum import CEFR_LEVELS  # noqa: PLC0415
-
-    current_idx = CEFR_LEVELS.index(plan.cefr_level) if plan.cefr_level in CEFR_LEVELS else 0
-    next_level = CEFR_LEVELS[current_idx + 1] if current_idx + 1 < len(CEFR_LEVELS) else None
+    next_level = next_cefr_level(plan.cefr_level)
 
     plan.completion_test_taken = True
     plan.completion_test_score = score
@@ -663,10 +683,7 @@ async def get_level_test_result(
             status_code=status.HTTP_404_NOT_FOUND, detail="Level test result not found."
         )
 
-    from app.data.curriculum import CEFR_LEVELS  # noqa: PLC0415
-
-    current_idx = CEFR_LEVELS.index(plan.cefr_level) if plan.cefr_level in CEFR_LEVELS else 0
-    next_level = CEFR_LEVELS[current_idx + 1] if current_idx + 1 < len(CEFR_LEVELS) else None
+    next_level = next_cefr_level(plan.cefr_level)
 
     return LevelTestResult(
         score=plan.completion_test_score or 0.0,

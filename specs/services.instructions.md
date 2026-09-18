@@ -50,6 +50,10 @@ whenever a rotation assignment can represent it. `study-plan.instructions.md` ow
 `assert_plan_capacity()` rejects a grid too short to give every curriculum unit a teaching slot; both
 plan-creation entry points call it before creating or deactivating anything.
 
+`completion_service.py` derives the end-of-plan presentation state (`in_progress`, `ready`, `taken`) and
+level-test eligibility from the persisted plan plus a pending-lessons check on `lessons`; it makes no
+LLM calls. The eligibility contract lives in `study-plan.instructions.md`.
+
 `lesson_generator.py` uses the LLM within curriculum, CEFR, target-language, and native-language
 constraints. It:
 

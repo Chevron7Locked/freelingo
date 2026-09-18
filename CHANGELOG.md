@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Short-plan lesson coverage**: each unit follows its own lesson-type cycle, with incomplete cycles cut off at the end. Short plans can therefore omit dedicated modalities: a 4-week × 5-day B1 Spanish plan has no unit writing or review lessons, and the reserved completion-test slot does not replace them.
+- **Short-plan lesson coverage**: new plans rotate each unit's lesson-type cycle so every declared modality is represented plan-wide whenever a rotation assignment can represent it. A 4-week × 5-day B1 Spanish plan now includes unit `writing` and `review` lessons, and a B2 Chinese plan at 12 weeks × 4 days keeps `review`. When capacity cannot represent every type, the allocator keeps the maximum coverage, preferring types declared by fewer units; the reserved completion-test slot does not count as teaching coverage. Existing plans keep their stored schedules.
 
 ### Fixed
 

@@ -48,24 +48,25 @@ progress-derived state elsewhere.
 per plan day, reserving the final grid coordinate for the end-of-level test. The remaining
 `duration_weeks × days_per_week − 1` teaching slots are split into fair per-unit quotas: every unit
 receives `floor(teaching_slots / unit_count)` slots and the remainder goes one slot each to the
-earliest units, so no two units differ by more than one slot. Each unit's quota is filled by cycling
-that unit's own `lesson_types` in order; when a quota is not a multiple of the unit's type count, the
-final cycle is truncated positionally, so the types after the cut are not scheduled for that unit.
+earliest units, so no two units differ by more than one slot. Each unit's quota is filled with a
+cyclic rotation of that unit's own `lesson_types`, so its lessons keep the declared relative order.
 
-Truncation is a modality trade-off, not a rounding detail: when the teaching slots are fewer than the
-sum of the units' cycle lengths, some lesson types are absent from the entire plan. A B1 Spanish plan at
-4 weeks × 5 days schedules no `writing` and no `review` lesson in any unit; a B2 Chinese plan at
-12 weeks × 4 days drops `review` everywhere and `writing` from its final unit. The completion-test slot
-is not a substitute for a unit's own review lesson — it resolves to no curriculum unit and carries no
-unit context. At the accepted minimum, exactly one teaching slot per unit, every unit receives a single
-lesson of its first declared type.
+Rotations are chosen deterministically to represent as many distinct declared lesson types as possible
+across the whole plan: a modality is absent only when no rotation assignment can represent it. The
+search is exact over the types the selected curriculum declares, ties prefer types declared by fewer
+units and then the canonical lesson-type order, and the earliest units keep their declared cycle start
+whenever coverage allows, so rotations land as late as possible. When the requested capacity cannot
+represent every declared type, the plan keeps the maximum possible coverage and is not described as
+complete modality coverage. The completion-test slot resolves to no curriculum unit and never counts
+towards teaching-modality coverage; it is not a substitute for a unit's own review lesson. Existing
+persisted plans keep their stored schedules; the policy applies to new plan creation only.
 
 A plan whose grid cannot give every unit at least one teaching slot, or whose level resolves to no
 curriculum units, is rejected before any state change, as is a request naming an unknown CEFR level
 (see `api-endpoints.instructions.md`). Capacity-error guidance distinguishes teaching lessons from the
 reserved completion test and rounds the minimum duration up to whole weeks at the requested frequency.
-That duration guarantees at least one lesson per unit, not a complete cycle. Generation does not call
-an LLM.
+That duration guarantees at least one lesson per unit, not a complete cycle in every unit; modality
+coverage is a plan-wide property. Generation does not call an LLM.
 
 Each slot contains week/day, type, localized title/objectives, estimated duration, unit ID, grammar
 slugs, and vocabulary-set IDs. The generated grid is the source of scheduled future slots.

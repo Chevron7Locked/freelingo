@@ -1,12 +1,15 @@
-"""Distribution contract for ``distribute_units`` (issue #316).
+"""Distribution contract for ``distribute_units`` (issues #316 and #334).
 
 The allocator spreads every curriculum unit fairly across the plan grid, fills
-each unit's quota by cycling that unit's own ``lesson_types`` in order, and
-reserves the final coordinate for the level completion test. Truncation is
-positional: when a quota is not a multiple of the unit's type count, the final
-cycle is cut off at the tail, so the types after the cut receive no slot in that
-unit. A unit that is a full cycle short simply has no lesson of that type —
-that is the documented policy, not a defect (see the study-plan specification).
+each unit's quota with a cyclic rotation of that unit's own ``lesson_types``, and
+reserves the final coordinate for the level completion test. Rotations are
+chosen exactly so that as many distinct declared lesson types as possible are
+represented across the whole plan: a modality is absent only when no rotation
+assignment can represent it. Ties prefer types declared by fewer units and then
+the canonical lesson-type order, and the earliest units keep their declared
+cycle start, so rotations land as late as possible. The reserved completion-test
+slot resolves to no curriculum unit and never counts towards teaching-modality
+coverage.
 
 Plans too short to give every unit a slot are rejected before any state changes
 (``assert_plan_capacity``); the tests for that live here too.
@@ -63,6 +66,14 @@ def _unit_counts(slots: list[dict]) -> Counter:
 
 def _types_for(slots: list[dict], unit_id: str) -> list[str]:
     return [s["lesson_type"] for s in slots if s["unit_id"] == unit_id]
+
+
+def _is_rotation(types: list[str], cycle: list[str]) -> bool:
+    """True when ``types`` is a cyclic rotation of the unit's declared cycle."""
+    if not types or types[0] not in cycle:
+        return False
+    start = cycle.index(types[0])
+    return types == [cycle[(start + index) % len(cycle)] for index in range(len(types))]
 
 
 #: Pinned teaching-slot counts per plan shape, for the eight units every shipped curriculum has.
@@ -127,74 +138,105 @@ def test_matrix_invariants(language: str, level: str, weeks: int, days: int) -> 
     assert [b[0] for b in blocks] == unit_ids
     assert [b[1] for b in blocks] == expected
 
-    # Each unit schedules only its own types, as a prefix of its own cycle.
+    # Each unit schedules only its own types, as a cyclic rotation of its cycle.
     for unit in units:
         types = _types_for(slots, unit.id)
         cycle = unit.lesson_types or ["grammar"]
-        assert types == [cycle[i % len(cycle)] for i in range(len(types))]
         assert set(types) <= set(cycle)
+        assert _is_rotation(types, cycle)
+
+    # Modality coverage: every declared type is represented plan-wide. The
+    # reserved completion-test slot is not a unit-owned teaching modality.
+    scheduled = {s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID}
+    declared = {lesson_type for unit in units for lesson_type in unit.lesson_types}
+    assert declared <= scheduled
 
     # Deterministic: identical inputs produce identical output.
     again = distribute_units(units, total_weeks=weeks, days_per_week=days, target_language=language)
     assert again == slots
 
 
-# ── T2: the documented deficit/truncation policy ──────────────────────────────
+# ── T2: the documented modality-coverage policy ───────────────────────────────
 
 
-def test_deficit_policy_es_b1_4x5() -> None:
-    """maintainer example: 20 slots cannot carry every type of 8 units."""
+def test_modality_coverage_es_b1_4x5() -> None:
+    """maintainer example: 20 slots cannot carry every type in every unit, but
+    every declared type is represented somewhere in the plan."""
     units, slots = _slots("es-ES", "B1", 4, 5)
     counts = _unit_counts(slots)
     assert [counts[u.id] for u in units] == [3, 3, 3, 2, 2, 2, 2, 2]
 
-    unit_owned_types = [s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID]
-    assert "review" not in unit_owned_types
-    assert "writing" not in unit_owned_types
+    unit_owned_types = {s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID}
+    assert {"grammar", "vocabulary", "reading", "writing", "review"} <= unit_owned_types
 
-    # The single `review` lesson in the plan is the completion test itself, and it
-    # sits at the final coordinate — so this assertion cannot be met by dropping it.
-    reviews = [s for s in slots if s["lesson_type"] == "review"]
-    assert len(reviews) == 1
-    assert reviews[0]["unit_id"] == COMPLETION_UNIT_ID
-    assert (reviews[0]["week"], reviews[0]["day"]) == (4, 5)
+    # The completion test still owns the final coordinate and is not a substitute
+    # for a unit review lesson — it resolves to no unit and carries no unit context.
+    final = slots[-1]
+    assert final["unit_id"] == COMPLETION_UNIT_ID
+    assert final["lesson_type"] == "review"
+    assert (final["week"], final["day"]) == (4, 5)
 
 
-def test_deficit_policy_zh_cn_b2_12x4() -> None:
-    """maintainer example: the 7-type zh cycles cannot fit 6 slots."""
+def test_modality_coverage_zh_cn_b2_12x4() -> None:
+    """maintainer example: the 7-type zh cycles cannot fit 6 slots, but all
+    seven modalities are represented plan-wide."""
     units, slots = _slots("zh-CN", "B2", 12, 4)
     counts = _unit_counts(slots)
     assert [counts[u.id] for u in units] == [6, 6, 6, 6, 6, 6, 6, 5]
 
-    for unit in units:
-        assert "review" not in _types_for(slots, unit.id)
-
-    last = units[-1]
-    assert "writing" not in _types_for(slots, last.id)
+    unit_owned_types = {s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID}
+    assert unit_owned_types == {
+        "grammar",
+        "vocabulary",
+        "listening",
+        "speaking",
+        "reading",
+        "writing",
+        "review",
+    }
 
 
 def test_unit_whose_quota_covers_its_cycle_schedules_every_type() -> None:
+    """12×4 gives every German A2 unit at least a full 5-type cycle."""
     units, slots = _slots("de-DE", "A2", 12, 4)
     counts = _unit_counts(slots)
     assert [counts[u.id] for u in units] == [6, 6, 6, 6, 6, 6, 6, 5]
 
-    covered: list[str] = []
-    truncated: list[str] = []
     for unit in units:
         types = _types_for(slots, unit.id)
         cycle = unit.lesson_types or ["grammar"]
-        if len(types) >= len(cycle):
-            # A unit whose quota reaches its type count must schedule every type it declares.
-            assert set(cycle) <= set(types), f"{unit.id} did not schedule part of its own cycle"
-            covered.append(unit.id)
-        else:
-            truncated.append(unit.id)
+        assert len(types) >= len(cycle)
+        assert set(cycle) <= set(types), f"{unit.id} did not schedule part of its own cycle"
+        assert _is_rotation(types, cycle)
 
-    # Without this the assertion above is vacuous whenever truncation bites everywhere: some
-    # unit must actually reach its full cycle, and truncation must hit a suffix of the units
-    # (the smallest quotas), never a unit in the middle of the schedule.
-    assert covered, "no unit reached its full cycle, so the equality check proved nothing"
-    assert [u.id for u in units][len(units) - len(truncated) :] == truncated
+
+def test_insufficient_capacity_keeps_maximum_coverage() -> None:
+    """3 teaching slots cannot represent 7 declared types: the best-effort
+    schedule is exact and deterministic instead of claiming full coverage."""
+    types = ["grammar", "vocabulary", "reading", "writing", "listening", "speaking", "review"]
+    units = [_unit(n, types) for n in (1, 2)]
+    slots = distribute_units(units, total_weeks=1, days_per_week=4, target_language="en-GB")
+
+    # 4 slots − 1 completion test = 3 teaching slots for 2 units: quota 2 + 1.
+    assert _unit_counts(slots) == Counter({"u1": 2, "u2": 1})
+    scheduled = [s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID]
+    # Maximum coverage is 3 distinct types: the first unit keeps its declared
+    # order and the second fills the earliest missing type.
+    assert set(scheduled) == {"grammar", "vocabulary", "reading"}
+
+
+def test_scarce_modalities_win_coverage_ties() -> None:
+    """When capacity forces a choice, the rarest declared modalities are kept."""
+    units = [
+        _unit(1, ["grammar", "speaking"]),
+        _unit(2, ["grammar", "review"]),
+        _unit(3, ["grammar"]),
+    ]
+    slots = distribute_units(units, total_weeks=1, days_per_week=4, target_language="en-GB")
+
+    assert _unit_counts(slots) == Counter({"u1": 1, "u2": 1, "u3": 1})
+    scheduled = {s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID}
+    assert scheduled == {"grammar", "speaking", "review"}
 
 
 # ── T3: heterogeneous curricula (the old global type_index defect) ────────────
@@ -219,7 +261,7 @@ def test_heterogeneous_curricula_keep_each_units_own_cycle(
         # A unit must never inherit a type it does not declare (old behaviour:
         # one global counter walked the concatenated type list of all units).
         assert set(types) <= set(cycle), f"{unit.id} scheduled a type it does not declare"
-        assert types == [cycle[i % len(cycle)] for i in range(len(types))]
+        assert _is_rotation(types, cycle)
 
 
 # ── T4: balanced coverage where capacity allows ───────────────────────────────
@@ -234,14 +276,18 @@ def test_zh_curricula_balanced_coverage(level: str, weeks: int, days: int) -> No
     assert [counts[u.id] for u in units] == [6, 6, 6, 6, 6, 6, 6, 5]
     assert min(counts.values()) == 5
 
-    # The shared opening types reach every unit; the tail is what gets truncated.
-    for unit in units:
-        assert {"grammar", "vocabulary"} <= set(_types_for(slots, unit.id))
-
-    last_cycle = units[-1].lesson_types
-    assert set(last_cycle) - set(_types_for(slots, units[-1].id)) == {"writing", "review"}
-    for unit in units[:-1]:
-        assert set(unit.lesson_types) - set(_types_for(slots, unit.id)) == {"review"}
+    # The 7-type cycles cannot fit everywhere, but no declared type is dropped
+    # from the plan: review and writing are unit-owned lessons, not just the test.
+    scheduled = {s["lesson_type"] for s in slots if s["unit_id"] != COMPLETION_UNIT_ID}
+    assert scheduled == {
+        "grammar",
+        "vocabulary",
+        "listening",
+        "speaking",
+        "reading",
+        "writing",
+        "review",
+    }
 
 
 # ── T5: validation ────────────────────────────────────────────────────────────

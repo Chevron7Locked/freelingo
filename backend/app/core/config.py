@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "ollama"
     OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
     OLLAMA_MODEL: str = "gemma4:e4b"
+    # Seconds before an LLM request is abandoned. Lesson generation with a
+    # large local model routinely exceeds two minutes.
+    LLM_REQUEST_TIMEOUT: int = 600
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     ANTHROPIC_API_KEY: str = ""

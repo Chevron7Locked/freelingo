@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
+from app.core.config import settings
+
 # ---------------------------------------------------------------------------
 # parse_llm_json
 # ---------------------------------------------------------------------------
@@ -498,7 +500,9 @@ class TestChatStreaming:
         ) as mock_create:
             mock_create.return_value = MagicMock()
             await adapter.chat([{"role": "user", "content": "Hi"}], stream=True)
-            assert mock_create.call_args.kwargs["timeout"] == 120.0
+            # The client must receive the configured request timeout, whatever
+            # LLM_REQUEST_TIMEOUT is set to in this environment.
+            assert mock_create.call_args.kwargs["timeout"] == float(settings.LLM_REQUEST_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +674,7 @@ class TestAnthropicChat:
             await adapter.chat([{"role": "user", "content": "Hi"}])
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["max_tokens"] == 8192
-            assert call_kwargs["timeout"] == 120.0
+            assert call_kwargs["timeout"] == float(settings.LLM_REQUEST_TIMEOUT)
 
             resp.content[0].text = '{"answer":'
             resp.stop_reason = "max_tokens"

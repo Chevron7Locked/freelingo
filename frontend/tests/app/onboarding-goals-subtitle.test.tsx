@@ -3,14 +3,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import enMessages from '../../../messages/en.json'
 
-const { mockApiFetch, mockPush, mockReplace } = vi.hoisted(() => ({
+const { mockApiFetch, mockPush } = vi.hoisted(() => ({
   mockApiFetch: vi.fn(),
   mockPush: vi.fn(),
-  mockReplace: vi.fn(),
 }))
 
-// REAL next-intl message resolution for the onboarding namespace, with real
-// {variable} interpolation, so the subtitle wiring is exercised end to end.
+// Resolve real catalog strings with real {variable} interpolation; the
+// repo's usual next-intl mock echoes keys and would hide this bug.
 vi.mock('next-intl', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next-intl')>()
   return {
@@ -34,14 +33,13 @@ vi.mock('next-intl', async (importOriginal) => {
         return text
       }
     },
-    // useLocale has a real implementation in next-intl but requires a provider;
-    // supply the UI locale directly instead.
+    // real useLocale needs a provider; pin the UI locale
     useLocale: () => 'en',
   }
 })
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useRouter: () => ({ push: mockPush }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => '/onboarding',
 }))
@@ -107,7 +105,7 @@ describe('onboarding goals subtitle', () => {
   it('names the selected language on the goals step', async () => {
     render(React.createElement(OnboardingPage))
 
-    // step 1: pick Spanish (localized name the selector itself renders), continue
+    // step 1: pick Spanish, continue
     await waitFor(() =>
       expect(screen.getAllByRole('button').length).toBeGreaterThan(0)
     )

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { splitYearlyCta, type BillingInterval } from '@/lib/billing-copy'
@@ -12,7 +12,11 @@ import { useAuthStore, isSubscribed, isFreemiumTrialActive } from '@/store/auth'
 import { useConfigStore } from '@/store/config'
 import { useLanguageStore } from '@/store/language'
 import TargetLanguageSelector from '@/components/TargetLanguageSelector'
-import { DEFAULT_TARGET_LANGUAGE } from '@/lib/target-languages'
+import {
+  DEFAULT_TARGET_LANGUAGE,
+  formatLanguageName,
+  getLanguageByCode,
+} from '@/lib/target-languages'
 
 const LEARNING_GOALS = [
   'travel',
@@ -34,6 +38,7 @@ function getSelectedPlan(plan: string | null): BillingInterval | null {
 export default function OnboardingPage() {
   const t = useTranslations('onboarding')
   const tCommon = useTranslations('common')
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const setUser = useAuthStore((s) => s.setUser)
@@ -266,7 +271,12 @@ export default function OnboardingPage() {
           {step === 2 && (
             <div className="space-y-5">
               <p className="text-fl-fg font-mono text-sm">
-                {t('goals.subtitle')}
+                {t('goals.subtitle', {
+                  language: formatLanguageName(
+                    getLanguageByCode(targetLanguage)?.name ?? '',
+                    locale
+                  ),
+                })}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {LEARNING_GOALS.map((goal) => {

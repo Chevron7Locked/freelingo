@@ -441,6 +441,8 @@
     "nextStep": "Nächster Schritt",
     "assessmentCreatesPlan": "Die Bewertung ermittelt dein Niveau und erstellt einen persönlichen Plan für deine aktive Sprache.",
     "lessonReady": "Dein nächster Schritt, in deinem Tempo",
+    "lessonPreparing": "Nächste Lektion wird vorbereitet",
+    "lessonPreparingDesc": "Das dauert meist ein bis zwei Minuten. Die Seite aktualisiert sich, sobald sie bereit ist.",
     "pendingStillAvailable": "Du hast {count} frühere Lektionen in deinem Plan offen.",
     "noPendingToday": "Schau in deinen Plan, um zu sehen, wie es weitergeht.",
     "planDayGoal": "Ziel für diesen Tag im Lernplan",

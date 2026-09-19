@@ -503,7 +503,7 @@ async def test_boundary_plan_covers_every_unit_exactly_once(client, test_user) -
 
 
 async def test_today_passes_complete_unit_context_to_generate_lesson(
-    client, test_user, db_session, monkeypatch
+    client, test_user, db_session, monkeypatch, inline_generation
 ) -> None:
     """Lesson generation keeps receiving the unit's complete grammar/vocabulary."""
     user, headers = test_user
@@ -550,10 +550,11 @@ async def test_today_passes_complete_unit_context_to_generate_lesson(
         captured.update(kwargs)
         return _FakeContent()
 
-    monkeypatch.setattr("app.routers.study_plan.generate_lesson", _fake_generate_lesson)
+    monkeypatch.setattr("app.services.background_lessons.generate_lesson", _fake_generate_lesson)
 
     resp = await client.get("/api/study-plan/today", headers=headers)
     assert resp.status_code == 200
+    await inline_generation.drain()
 
     units = get_curriculum_units("A1", "de-DE")
     unit = next(u for u in units if u.id == captured["unit_id"])

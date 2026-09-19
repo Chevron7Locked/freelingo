@@ -441,6 +441,8 @@
     "nextStep": "Volgende stap",
     "assessmentCreatesPlan": "De beoordeling bepaalt je niveau en maakt een persoonlijk plan voor je actieve taal.",
     "lessonReady": "Jouw volgende stap, op jouw tempo",
+    "lessonPreparing": "Volgende les wordt voorbereid",
+    "lessonPreparingDesc": "Dit duurt meestal een tot twee minuten. De pagina wordt bijgewerkt zodra de les klaar is.",
     "pendingStillAvailable": "Je hebt {count} eerdere lessen openstaan in je plan.",
     "noPendingToday": "Bekijk je plan om te zien hoe je verder kunt.",
     "planDayGoal": "Doel voor deze dag van je plan",

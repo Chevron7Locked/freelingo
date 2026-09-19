@@ -126,7 +126,7 @@ async def _lesson_rows(db_session, plan_id: int) -> list[Lesson]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit_id,lesson_type,title", COMPLETION_SLOT_VARIANTS)
 async def test_today_does_not_generate_a_lesson_for_the_completion_slot(
-    client, test_user, db_session, unit_id, lesson_type, title
+    client, test_user, db_session, unit_id, lesson_type, title, inline_generation
 ):
     user, headers = test_user
     plan = await _completion_plan(
@@ -134,7 +134,7 @@ async def test_today_does_not_generate_a_lesson_for_the_completion_slot(
     )
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         response = await client.get("/api/study-plan/today", headers=headers)
 
     assert response.status_code == 200
@@ -146,12 +146,13 @@ async def test_today_does_not_generate_a_lesson_for_the_completion_slot(
 
 
 @pytest.mark.asyncio
-async def test_today_final_slot_is_idempotent(client, test_user, db_session):
+async def test_today_final_slot_is_idempotent(client, test_user, db_session, inline_generation
+):
     user, headers = test_user
     plan = await _completion_plan(db_session, user.id)
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         first = await client.get("/api/study-plan/today", headers=headers)
         second = await client.get("/api/study-plan/today", headers=headers)
 
@@ -164,7 +165,7 @@ async def test_today_final_slot_is_idempotent(client, test_user, db_session):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit_id,lesson_type,title", COMPLETION_SLOT_VARIANTS)
 async def test_today_returns_a_legacy_completion_lesson_without_regenerating_it(
-    client, test_user, db_session, unit_id, lesson_type, title
+    client, test_user, db_session, unit_id, lesson_type, title, inline_generation
 ):
     """A lesson persisted before this contract stays reachable while the test is pending."""
     user, headers = test_user
@@ -178,7 +179,7 @@ async def test_today_returns_a_legacy_completion_lesson_without_regenerating_it(
     await db_session.commit()
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         response = await client.get("/api/study-plan/today", headers=headers)
 
     assert response.status_code == 200
@@ -193,7 +194,7 @@ async def test_today_returns_a_legacy_completion_lesson_without_regenerating_it(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit_id,lesson_type,title", COMPLETION_SLOT_VARIANTS)
 async def test_today_advances_past_a_completed_legacy_completion_lesson(
-    client, test_user, db_session, unit_id, lesson_type, title
+    client, test_user, db_session, unit_id, lesson_type, title, inline_generation
 ):
     """A completed legacy synthetic lesson keeps its progress and unlocks the test."""
     user, headers = test_user
@@ -208,7 +209,7 @@ async def test_today_advances_past_a_completed_legacy_completion_lesson(
     await db_session.commit()
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         response = await client.get("/api/study-plan/today", headers=headers)
 
     data = response.json()
@@ -221,7 +222,7 @@ async def test_today_advances_past_a_completed_legacy_completion_lesson(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit_id,lesson_type,title", COMPLETION_SLOT_VARIANTS)
 async def test_today_reports_taken_state_and_hides_the_legacy_lesson(
-    client, test_user, db_session, unit_id, lesson_type, title
+    client, test_user, db_session, unit_id, lesson_type, title, inline_generation
 ):
     user, headers = test_user
     plan = await _completion_plan(
@@ -242,7 +243,7 @@ async def test_today_reports_taken_state_and_hides_the_legacy_lesson(
     await db_session.commit()
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         response = await client.get("/api/study-plan/today", headers=headers)
 
     data = response.json()
@@ -294,7 +295,7 @@ async def test_today_reports_ready_state_after_skipping_to_the_end(client, test_
 
 @pytest.mark.asyncio
 async def test_today_pending_lessons_from_passed_days_block_eligibility(
-    client, test_user, db_session
+    client, test_user, db_session, inline_generation
 ):
     """Skipped lessons must be completed before the assessment unlocks."""
     user, headers = test_user
@@ -314,7 +315,7 @@ async def test_today_pending_lessons_from_passed_days_block_eligibility(
     await db_session.commit()
 
     generator = AsyncMock(side_effect=AssertionError("generator must not be called"))
-    with patch("app.routers.study_plan.generate_lesson", generator):
+    with patch("app.services.background_lessons.generate_lesson", generator):
         blocked = await client.get("/api/study-plan/today", headers=headers)
 
     data = blocked.json()

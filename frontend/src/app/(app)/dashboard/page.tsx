@@ -31,6 +31,14 @@ interface TodayLessonItem {
   is_completed: boolean
 }
 
+interface GeneratingItem {
+  title: string
+  lesson_type: string
+  week: number
+  day: number
+  unit_id: string
+}
+
 interface CompletionState {
   state: 'in_progress' | 'ready' | 'taken'
   score: number | null
@@ -84,6 +92,7 @@ export default function DashboardPage() {
   const [progressDay, setProgressDay] = useState(0)
   const [totalDays, setTotalDays] = useState(0)
   const [pendingCount, setPendingCount] = useState(0)
+  const [generating, setGenerating] = useState<GeneratingItem[]>([])
   const [totalLessons, setTotalLessons] = useState(0)
   const [totalExercises, setTotalExercises] = useState(0)
   const [exercisesCorrect, setExercisesCorrect] = useState(0)
@@ -137,6 +146,7 @@ export default function DashboardPage() {
         setProgressDay(plan.progress_day ?? 0)
         setTotalDays(plan.total_days ?? 0)
         setPendingCount(plan.pending_count ?? 0)
+        setGenerating(plan.generating ?? [])
         setTodayLessons(
           plan.lessons.map((l: TodayLessonItem) => ({
             id: l.id,
@@ -157,6 +167,7 @@ export default function DashboardPage() {
         setProgressDay(0)
         setTotalDays(0)
         setPendingCount(0)
+        setGenerating([])
         setTodayLessons([])
         setHasPlan(false)
       }
@@ -171,6 +182,16 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // While lessons are being prepared in the background, keep polling so the
+  // card swaps to a real lesson the moment it lands.
+  useEffect(() => {
+    if (generating.length === 0) return
+    const timer = setInterval(() => {
+      loadData()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [generating, loadData])
 
   async function skipDay() {
     if (skipping) return
@@ -375,6 +396,21 @@ export default function DashboardPage() {
                   </button>
                 </Link>
               )}
+            </div>
+          ) : generating.length > 0 ? (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-fl-hint text-fl-muted-2 mb-2 font-mono tracking-widest uppercase">
+                  {t('lessonPreparing')}
+                </p>
+                <h2 className="text-fl-fg font-mono text-xl font-bold tracking-tight">
+                  {generating[0].title}
+                </h2>
+                <p className="text-fl-muted-2 mt-2 flex items-center gap-2 font-mono text-sm">
+                  <span className="border-fl-fg inline-block h-3 w-3 animate-spin rounded-full border-2 border-t-transparent" />
+                  {t('lessonPreparingDesc')}
+                </p>
+              </div>
             </div>
           ) : nextLesson ? (
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

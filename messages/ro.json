@@ -441,6 +441,8 @@
     "nextStep": "Pasul următor",
     "assessmentCreatesPlan": "Evaluarea îți găsește nivelul și creează un plan personalizat pentru limba activă.",
     "lessonReady": "Următorul tău pas, în ritmul tău",
+    "lessonPreparing": "Pregătim următoarea ta lecție",
+    "lessonPreparingDesc": "De obicei durează unu-două minute. Pagina se actualizează imediat ce lecția e gata.",
     "pendingStillAvailable": "Ai {count} lecții anterioare în așteptare în plan.",
     "noPendingToday": "Consultă planul pentru a vedea cum să continui.",
     "planDayGoal": "Obiectivul acestei zile din plan",

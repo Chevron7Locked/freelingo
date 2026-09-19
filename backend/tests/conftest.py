@@ -61,6 +61,45 @@ async def db_session(test_engine, setup_db):
 
 
 @pytest.fixture
+def inline_generation(monkeypatch, db_session):
+    """Run background lesson generation synchronously inside tests.
+
+    Replaces the router's spawn seam with one that schedules the real
+    generate-and-persist path on the running loop (same contract as
+    production's create_task), but on the test session with a patched LLM.
+    Tests call ``await inline_generation.drain()`` after the request to
+    wait for spawned tasks deterministically.
+    """
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from app.services import background_lessons
+
+    @asynccontextmanager
+    async def _same_session():
+        yield db_session
+
+    tasks: list[asyncio.Task] = []
+
+    def _spawn(redis, **kwargs):
+        monkeypatch.setattr(background_lessons, "AsyncSessionLocal", _same_session)
+        task = asyncio.create_task(
+            background_lessons.generate_and_persist_lesson(redis=redis, **kwargs)
+        )
+        tasks.append(task)
+        return task
+
+    monkeypatch.setattr("app.routers.study_plan.spawn_lesson_generation", _spawn)
+
+    class _Controller:
+        async def drain(self):
+            for task in tasks:
+                await task
+
+    return _Controller()
+
+
+@pytest.fixture
 def mock_redis():
     store = {}
 
@@ -70,6 +109,9 @@ def mock_redis():
 
         async def set(self, key, value, *args, **kwargs):
             store[key] = value
+
+        async def exists(self, key):
+            return 1 if key in store else 0
 
         async def get(self, key):
             return store.get(key)

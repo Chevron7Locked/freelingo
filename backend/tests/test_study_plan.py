@@ -88,7 +88,7 @@ async def test_get_today_lessons(client, test_user):
     [("A1", "es"), ("A2", "es"), ("B1", "es")],
 )
 async def test_today_passes_native_language_only_for_beginner_lessons(
-    client, test_user, db_session, cefr_level, expected_native_language
+    client, test_user, db_session, inline_generation, cefr_level, expected_native_language
 ):
     """Lazy lesson generation receives native_language for all CEFR levels."""
     user, headers = test_user
@@ -150,10 +150,11 @@ async def test_today_passes_native_language_only_for_beginner_lessons(
         unit_id="",
     )
     with patch(
-        "app.routers.study_plan.generate_lesson",
+        "app.services.background_lessons.generate_lesson",
         new=AsyncMock(return_value=generated),
     ) as mock_generate:
         response = await client.get("/api/study-plan/today", headers=headers)
+        await inline_generation.drain()
 
     assert response.status_code == 200
     assert mock_generate.await_args.kwargs["native_language"] == expected_native_language
@@ -541,7 +542,9 @@ async def test_today_returns_empty_when_plan_complete(client, test_user, db_sess
 
 
 @pytest.mark.asyncio
-async def test_today_passes_previous_unit_lessons_to_generator(client, test_user, db_session):
+async def test_today_passes_previous_unit_lessons_to_generator(
+    client, test_user, db_session, inline_generation
+):
     """Lessons of the same unit are generated with the content of their siblings as context."""
     user, headers = test_user
 
@@ -610,10 +613,11 @@ async def test_today_passes_previous_unit_lessons_to_generator(client, test_user
         grammar_refs=[],
     )
     with patch(
-        "app.routers.study_plan.generate_lesson",
+        "app.services.background_lessons.generate_lesson",
         new=AsyncMock(return_value=generated),
     ) as mock_generate:
         response = await client.get("/api/study-plan/today", headers=headers)
+        await inline_generation.drain()
 
     assert response.status_code == 200
     assert mock_generate.await_count == 2

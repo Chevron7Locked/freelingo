@@ -94,6 +94,15 @@ class TodayLesson(BaseModel):
     unit_id: str = ""
     is_completed: bool = False
 
+class GeneratingLesson(BaseModel):
+    """A scheduled lesson whose content is still being generated."""
+
+    title: str
+    lesson_type: str
+    week: int
+    day: int
+    unit_id: str = ""
+
 
 class CompletionState(BaseModel):
     """End-of-plan assessment state derived from the persisted study plan.
@@ -113,6 +122,7 @@ class TodayResponse(BaseModel):
     plan_id: int
     cefr_level: str
     lessons: list[TodayLesson]
+    generating: list[GeneratingLesson] = []
     progress_day: int = 0
     total_days: int = 0
     pending_count: int = 0
